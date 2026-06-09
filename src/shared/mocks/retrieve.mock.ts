@@ -17,16 +17,16 @@
 import { RetrieveResult } from '../types/retrieve.js';
 
 /*
- * DUMMY DATA — Week 1 only. Simulates the standardized output of POST /ssot/devops/retrieve
- * (PROJECT_KNOWLEDGE.md §1.3, §5.5): a Calculated Insight, a Data Transform, and the
- * DataModelObjects / DataLakeObjects the backend auto-spiders, each with its server-resolved
- * dependsOn edges. This stands in for the service layer's result, so the raw per-component
- * payload (entitypayload / data) is already stripped — it never appears here. No network call
- * or file write happens.
+ * SUPERSEDED — kept for reference only. As of Phase 2 the command sources its data from
+ * shared/services/retrieve-service.ts, which consumes the RAW response fixture
+ * (shared/mocks/retrieve-api-response.mock.ts) and writes files to disk before stripping payloads.
+ * This module is no longer imported anywhere; it is retained as a concise reference for the
+ * STANDARDIZED RetrieveResult shape (PROJECT_KNOWLEDGE.md §5.5) — the raw per-component payload
+ * (entitypayload / data) is already stripped here, so it shows exactly what the command returns.
  *
- * TODO(Week 2–3): delete this module; replace the call site in the command with a real
- * Connect API client (shared/services/devops-api.ts) returning RetrieveResult, and persist
- * each component to disk in the §5.2 layout.
+ * DUMMY DATA — Week 1 only: a Calculated Insight, a Data Transform, and the DataModelObjects /
+ * DataLakeObjects the backend auto-spiders, each with its server-resolved dependsOn edges. No
+ * network call or file write happens.
  */
 
 /**

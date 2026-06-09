@@ -52,6 +52,39 @@ export type RetrieveResult = {
   targetComponent: string;
   /** The requested component plus its server-resolved dependency graph. */
   retrievedComponents: RetrievedComponentInfo[];
-  /** Dataspace-aware directory the components would be written to (§5.2). */
+  /**
+   * Dataspace-scoped write root for this retrieve (§5.2), e.g. "./data-cloud/default/".
+   * Note: dataspace-agnostic components (DataLakeObject definitions) are written OUTSIDE this
+   * directory, under "./data-cloud/data-lake-objects/". The authoritative inventory of every file
+   * written is "./data-cloud/manifest.json".
+   */
   fileWriteLocation: string;
+};
+
+/**
+ * One component as the raw POST /ssot/devops/retrieve API returns it (§5.5): the standardized
+ * fields PLUS a raw, type-specific payload. The payload arrives under one of two inconsistent keys
+ * (`entitypayload` lowercase, or `data`) and is normalized to `entityPayload` (camelCase) on disk
+ * by the file-writer. These raw types are the INPUT to the service layer and never reach the
+ * command's `RetrieveResult` — the payload is stripped before the standardized result is returned.
+ */
+export type RawRetrievedComponent = {
+  /** API value of the component type, e.g. "CalculatedInsight". */
+  componentType: string;
+  /** API/developer name of the component, e.g. "highValueCustomer". */
+  componentName: string;
+  /** Developer name of the dataspace this component belongs to. */
+  dataspaceName: string;
+  /** Direct dependencies (server-resolved); empty array for leaf components. */
+  dependsOn: ComponentDependency[];
+  /** Raw payload under the API's lowercase key; an object or a string. May be absent. */
+  entitypayload?: unknown;
+  /** Alternative raw payload key; either the payload itself or an object wrapping `entityPayload`. */
+  data?: unknown;
+};
+
+/** Raw POST /ssot/devops/retrieve response (pre-strip, payloads still attached). */
+export type RetrieveApiResponse = {
+  /** The requested component plus its server-spidered dependencies, in deployment order. */
+  components: RawRetrievedComponent[];
 };

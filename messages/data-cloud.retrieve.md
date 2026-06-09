@@ -6,7 +6,7 @@ Retrieve a Data Cloud component along with its full dependency graph.
 
 Simulates pulling a metadata component from a source org and mapping out all necessary internal engine dependencies.
 
-This command currently returns dummy data and does not contact an org or write files.
+This command currently returns dummy data and does not contact an org. It writes one JSON file per component to the local data-cloud/ directory, along with a manifest of the deployment order.
 
 # flags.component.summary
 

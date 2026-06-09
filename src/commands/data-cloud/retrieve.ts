@@ -16,7 +16,7 @@
 
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
-import { getMockRetrieveResult } from '../../shared/mocks/retrieve.mock.js';
+import { retrieveComponents } from '../../shared/services/retrieve-service.js';
 import { RetrieveResult } from '../../shared/types/retrieve.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -25,10 +25,12 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
 /*
  * Command: sf data-cloud retrieve
  * Maps to POST /ssot/devops/retrieve (PROJECT_KNOWLEDGE.md §1.7, §5.5).
- * Week 1: returns a dummy dependency graph from shared/mocks — no org contact, no file writes.
- * --src-org is accepted now to match the PRD UX walkthrough and to be the target of the real
- * auth/connection wiring in Week 2–3.
- * Stays thin — sources data from shared/ so wiring the real API later touches shared/, not this file.
+ * Week 1: delegates to the retrieve service, which sources a dummy dependency graph and writes one
+ * JSON file per component to the local data-cloud/ tree (§5.2) plus a manifest (§5.8). No org
+ * contact yet — --src-org is accepted to match the PRD UX walkthrough and to be the target of the
+ * real auth/connection wiring in Week 2–3.
+ * Stays thin — all sourcing + persistence lives in shared/services, so wiring the real API later
+ * touches shared/, not this file.
  */
 export default class DataCloudRetrieve extends SfCommand<RetrieveResult> {
   public static readonly summary = messages.getMessage('summary');
@@ -54,9 +56,9 @@ export default class DataCloudRetrieve extends SfCommand<RetrieveResult> {
   public async run(): Promise<RetrieveResult> {
     const { flags } = await this.parse(DataCloudRetrieve);
 
-    // Source: dummy dependency graph today; swap for a Connect API client in Week 2–3.
-    // The mock simulates the server's spidered, deployment-ordered response (§5.5).
-    const result = getMockRetrieveResult(flags.component, flags.dataspace);
+    // The service sources the (currently dummy) response, persists each component to disk (§5.2),
+    // and returns the standardized result with raw payloads stripped. Writes under process.cwd().
+    const result = await retrieveComponents(flags.component, flags.dataspace);
 
     // Human-readable output (auto-suppressed when --json is present).
     this.log(messages.getMessage('info.success', [result.retrievedComponents.length]));

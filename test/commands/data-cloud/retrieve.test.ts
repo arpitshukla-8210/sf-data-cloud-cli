@@ -13,6 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { TestContext } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
@@ -21,13 +24,23 @@ import DataCloudRetrieve from '../../../src/commands/data-cloud/retrieve.js';
 describe('data-cloud retrieve', () => {
   const $$ = new TestContext();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
+  // The command writes the data-cloud/ tree under process.cwd(); isolate it in a throwaway dir so
+  // tests never dirty the repo (data-cloud/ is not gitignored) and never leak across runs.
+  let origCwd: string;
+  let tmp: string;
 
   beforeEach(() => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
+    origCwd = process.cwd();
+    tmp = mkdtempSync(join(tmpdir(), 'dc-cmd-'));
+    process.chdir(tmp);
   });
 
   afterEach(() => {
+    // Restore cwd FIRST so a later cleanup throw can't strand the process in the temp dir.
+    process.chdir(origCwd);
     $$.restore();
+    rmSync(tmp, { recursive: true, force: true });
   });
 
   it('returns dependency graph structure and prints output logs matching the PRD exactly', async () => {
