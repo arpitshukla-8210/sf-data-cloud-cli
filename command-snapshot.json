@@ -1,6 +1,46 @@
 [
   {
     "alias": [],
+    "command": "data-cloud:component-type:list",
+    "flagAliases": [],
+    "flagChars": [],
+    "flags": ["flags-dir", "json"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
+    "command": "data-cloud:component:list",
+    "flagAliases": ["o", "target-org", "type"],
+    "flagChars": [],
+    "flags": ["component-type", "dataspace", "flags-dir", "json", "src-org"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
+    "command": "data-cloud:deploy",
+    "flagAliases": ["o"],
+    "flagChars": [],
+    "flags": ["component", "dataspace", "flags-dir", "json", "target-org"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
+    "command": "data-cloud:deploy:status",
+    "flagAliases": ["i", "o"],
+    "flagChars": [],
+    "flags": ["flags-dir", "job-id", "json", "target-org"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
+    "command": "data-cloud:retrieve",
+    "flagAliases": ["o", "target-org"],
+    "flagChars": [],
+    "flags": ["component", "dataspace", "flags-dir", "json", "src-org"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
     "command": "hello:world",
     "flagAliases": [],
     "flagChars": ["n"],

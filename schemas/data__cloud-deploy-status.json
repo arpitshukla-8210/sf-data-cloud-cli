@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/DeployStatusResult",
+  "definitions": {
+    "DeployStatusResult": {
+      "type": "object",
+      "properties": {
+        "jobId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/DeploymentLifecycleStatus"
+        },
+        "components": {
+          "$ref": "#/definitions/FailedComponentDetail",
+          "description": "Populated only when top-level status is FAILED to isolate the breaking element."
+        }
+      },
+      "required": ["jobId", "status"],
+      "additionalProperties": false,
+      "description": "Structural representation matching the GET /ssot/devops/deploy/{jobId}/status contract."
+    },
+    "DeploymentLifecycleStatus": {
+      "type": "string",
+      "enum": ["CREATED", "INPROGRESS", "SUCCESS", "FAILED"],
+      "description": "Deploy job lifecycle states (§5.6): the synchronous response is always CREATED; the job then advances to INPROGRESS and finally SUCCESS or FAILED, polled via `sf data-cloud deploy status`."
+    },
+    "FailedComponentDetail": {
+      "type": "object",
+      "properties": {
+        "componentName": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": ["componentName", "error"],
+      "additionalProperties": false,
+      "description": "The single failing component isolated on a FAILED job (§5.7). Structured + actionable (component + reason) per the AI-era error principle — never a raw gack or \"contact support\"."
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/ComponentTypeListResult",
+  "definitions": {
+    "ComponentTypeListResult": {
+      "type": "object",
+      "properties": {
+        "componentTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ComponentTypeSummary"
+          }
+        }
+      },
+      "required": ["componentTypes"],
+      "additionalProperties": false,
+      "description": "Shape returned by `sf data-cloud component-type list --json`."
+    },
+    "ComponentTypeSummary": {
+      "type": "object",
+      "properties": {
+        "componentType": {
+          "type": "string",
+          "description": "API value, e.g. \"CalculatedInsight\" — pass this to other commands."
+        },
+        "label": {
+          "type": "string",
+          "description": "Display label, e.g. \"Calculated Insight\"."
+        }
+      },
+      "required": ["componentType", "label"],
+      "additionalProperties": false,
+      "description": "Flattened, display-friendly row for CLI output."
+    }
+  }
+}

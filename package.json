@@ -54,6 +54,17 @@
     "topics": {
       "hello": {
         "description": "Commands to say hello."
+      },
+      "data-cloud": {
+        "description": "Source-controlled DevOps (retrieve and deploy) for Data Cloud (Data 360) components.",
+        "subtopics": {
+          "component-type": {
+            "description": "Work with the catalog of supported Data Cloud component types."
+          },
+          "component": {
+            "description": "List Data Cloud components of a given type within a dataspace."
+          }
+        }
       }
     },
     "flexibleTaxonomy": true

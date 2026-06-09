@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/RetrieveResult",
+  "definitions": {
+    "RetrieveResult": {
+      "type": "object",
+      "properties": {
+        "dataspace": {
+          "type": "string",
+          "description": "Developer name of the dataspace the retrieve was scoped to."
+        },
+        "targetComponent": {
+          "type": "string",
+          "description": "The user-requested component, in TYPE:NAME form, e.g. \"CalculatedInsight:highValueCustomer\"."
+        },
+        "retrievedComponents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RetrievedComponentInfo"
+          },
+          "description": "The requested component plus its server-resolved dependency graph."
+        },
+        "fileWriteLocation": {
+          "type": "string",
+          "description": "Dataspace-aware directory the components would be written to (§5.2)."
+        }
+      },
+      "required": ["dataspace", "targetComponent", "retrievedComponents", "fileWriteLocation"],
+      "additionalProperties": false,
+      "description": "Shape returned by `sf data-cloud retrieve` (and what `--json` emits)."
+    },
+    "RetrievedComponentInfo": {
+      "type": "object",
+      "properties": {
+        "componentType": {
+          "type": "string",
+          "description": "API value of the component type, e.g. \"CalculatedInsight\"."
+        },
+        "componentName": {
+          "type": "string",
+          "description": "API/developer name of the component, e.g. \"highValueCustomer\"."
+        },
+        "dataspaceName": {
+          "type": "string",
+          "description": "Developer name of the dataspace this component belongs to."
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ComponentDependency"
+          },
+          "description": "Direct dependencies (server-resolved); empty array for leaf components."
+        }
+      },
+      "required": ["componentType", "componentName", "dataspaceName", "dependsOn"],
+      "additionalProperties": false,
+      "description": "One component in the resolved dependency graph (standardized: no raw payload)."
+    },
+    "ComponentDependency": {
+      "type": "object",
+      "properties": {
+        "componentName": {
+          "type": "string",
+          "description": "API/developer name of the depended-on component, e.g. \"Divvy_TripsDmo\"."
+        },
+        "componentType": {
+          "type": "string",
+          "description": "API value of the depended-on component's type, e.g. \"DataModelObject\"."
+        }
+      },
+      "required": ["componentName", "componentType"],
+      "additionalProperties": false,
+      "description": "A single dependency edge (type + API name) within a component's dependency graph."
+    }
+  }
+}

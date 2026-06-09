@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/DeployResult",
+  "definitions": {
+    "DeployResult": {
+      "type": "object",
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "description": "Tracking identifier for the async deploy job; passed to `deploy status` to poll progress."
+        },
+        "status": {
+          "$ref": "#/definitions/DeploymentLifecycleStatus",
+          "description": "Initial job state from the synchronous deploy response — always 'CREATED' per contract (§5.6)."
+        }
+      },
+      "required": ["jobId", "status"],
+      "additionalProperties": false,
+      "description": "Shape returned by `sf data-cloud deploy` (and what `--json` emits)."
+    },
+    "DeploymentLifecycleStatus": {
+      "type": "string",
+      "enum": ["CREATED", "INPROGRESS", "SUCCESS", "FAILED"],
+      "description": "Deploy job lifecycle states (§5.6): the synchronous response is always CREATED; the job then advances to INPROGRESS and finally SUCCESS or FAILED, polled via `sf data-cloud deploy status`."
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# summary
+
+Retrieve a Data Cloud component along with its full dependency graph.
+
+# description
+
+Simulates pulling a metadata component from a source org and mapping out all necessary internal engine dependencies.
+
+This command currently returns dummy data and does not contact an org or write files.
+
+# flags.component.summary
+
+The component to retrieve, in TYPE:NAME format (for example, CalculatedInsight:highValueCustomer).
+
+# flags.dataspace.summary
+
+Developer name of the dataspace context.
+
+# flags.src-org.summary
+
+Username or alias of the source org.
+
+# examples
+
+- Retrieve a Calculated Insight component from a source environment:
+
+  <%= config.bin %> <%= command.id %> --component CalculatedInsight:highValueCustomer --dataspace default --src-org testOrg1
+
+# info.success
+
+✓ Retrieved %s components (full dependency graph):
+
+# info.componentLine
+
+%s:%s
+
+# info.filesWritten
+
+Files written to %s
