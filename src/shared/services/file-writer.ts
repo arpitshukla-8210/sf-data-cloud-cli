@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { RawRetrievedComponent } from '../types/retrieve.js';
 import { ComponentFile, Manifest, ManifestEntry } from '../types/file-layout.js';
+import { FOLDER_BY_TYPE, DATASPACE_AGNOSTIC_TYPES, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
 
 /*
  * Pure file-writing engine for `sf data-cloud retrieve` (PROJECT_KNOWLEDGE.md §5.1, §5.2, §5.8).
@@ -27,31 +28,6 @@ import { ComponentFile, Manifest, ManifestEntry } from '../types/file-layout.js'
  * file names, human-readable indented JSON, normalized `entityPayload` key — no DataKit internals.
  * Writes are idempotent (re-retrieve silently overwrites). No network, no org contact.
  */
-
-/** Component type -> kebab-case, plural folder name (§5.2). Generic across all supported types. */
-const FOLDER_BY_TYPE: Record<string, string> = {
-  CalculatedInsight: 'calculated-insights',
-  DataModelObject: 'data-model-objects',
-  DataTransform: 'data-transforms',
-  DataLakeObject: 'data-lake-objects',
-  IdentityResolution: 'identity-resolutions',
-  SegmentDefinition: 'segments',
-  DataStream: 'data-streams',
-  DataConnection: 'data-connections',
-  DataAction: 'data-actions',
-};
-
-/**
- * Types whose definitions are dataspace-agnostic (org-level) and therefore live at the
- * `data-cloud/` root, OUTSIDE any dataspace folder (§5.2). A Set so this stays extensible.
- */
-const DATASPACE_AGNOSTIC_TYPES = new Set<string>(['DataLakeObject']);
-
-/** Root directory all retrieve artifacts are written under, relative to the chosen base directory. */
-const ROOT_DIR = 'data-cloud';
-
-/** Manifest file name at the root of the `data-cloud/` tree (§5.8). */
-const MANIFEST_FILE = 'manifest.json';
 
 /** Narrows an unknown value to a plain (non-array) object so its keys can be inspected safely. */
 function isRecord(value: unknown): value is Record<string, unknown> {

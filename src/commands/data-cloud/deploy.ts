@@ -16,7 +16,7 @@
 
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
-import { getMockDeployResult } from '../../shared/mocks/deploy.mock.js';
+import { deployComponents } from '../../shared/services/deploy-service.js';
 import { DeployResult } from '../../shared/types/deploy.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -56,9 +56,9 @@ export default class DataCloudDeploy extends SfCommand<DeployResult> {
   public async run(): Promise<DeployResult> {
     const { flags } = await this.parse(DataCloudDeploy);
 
-    // Source: dummy deploy confirmation today; swap for a Connect API client in Week 2–3.
-    // The mock simulates the server enqueuing a background job and returning { jobId, CREATED } (§5.6).
-    const result = getMockDeployResult();
+    // Service layer: parse the flag → read local files → walk deps → assemble the payload → mock POST.
+    // When the real Connect API is ready, only deploy-service.ts changes (a one-line swap).
+    const result = await deployComponents(flags.component, flags.dataspace);
 
     // Human-readable output (auto-suppressed when --json is present).
     // We report the real CREATED state from the contract (§5.6) — the job advances to INPROGRESS,

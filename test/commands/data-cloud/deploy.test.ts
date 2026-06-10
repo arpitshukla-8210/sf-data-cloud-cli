@@ -13,27 +13,44 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { TestContext } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
 import DataCloudDeploy from '../../../src/commands/data-cloud/deploy.js';
+import { writeRetrievedComponents } from '../../../src/shared/services/file-writer.js';
+import { getMockRetrieveApiResponse } from '../../../src/shared/mocks/retrieve-api-response.mock.js';
 
 describe('data-cloud deploy', () => {
   const $$ = new TestContext();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
+  // The command reads the data-cloud/ tree from process.cwd(); isolate it in a throwaway dir and
+  // pre-populate it with exactly what retrieve writes, so deploy has real files to read.
+  let origCwd: string;
+  let tmp: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
+    origCwd = process.cwd();
+    tmp = mkdtempSync(join(tmpdir(), 'dc-deploy-cmd-'));
+    process.chdir(tmp);
+    const { components } = getMockRetrieveApiResponse('default');
+    await writeRetrievedComponents(components, { baseDir: tmp });
   });
 
   afterEach(() => {
+    // Restore cwd FIRST so a later cleanup throw can't strand the process in the temp dir.
+    process.chdir(origCwd);
     $$.restore();
+    rmSync(tmp, { recursive: true, force: true });
   });
 
   it('starts an async deploy and returns a tracking jobId in the CREATED state', async () => {
     const result = await DataCloudDeploy.run([
       '--component',
-      'CalculatedInsight:HighValueCustomers',
+      'CalculatedInsight:highValueCustomer',
       '--dataspace',
       'default',
       '--target-org',
@@ -49,7 +66,7 @@ describe('data-cloud deploy', () => {
       .flatMap((c) => c.args)
       .join('\n');
     // Echoes the requested component + dataspace, the jobId, the real CREATED status, and a poll hint.
-    expect(output).to.include('Deployment started for CalculatedInsight:HighValueCustomers in dataspace default');
+    expect(output).to.include('Deployment started for CalculatedInsight:highValueCustomer in dataspace default');
     expect(output).to.include('Job ID: 08PVF000002iQIb');
     expect(output).to.include('Status: CREATED');
     expect(output).to.include('sf data-cloud deploy status --job-id 08PVF000002iQIb --target-org uat-org');
@@ -57,7 +74,7 @@ describe('data-cloud deploy', () => {
 
   it('fails if the required target-org flag is missing', async () => {
     try {
-      await DataCloudDeploy.run(['--component', 'CalculatedInsight:HighValueCustomers', '--dataspace', 'default']);
+      await DataCloudDeploy.run(['--component', 'CalculatedInsight:highValueCustomer', '--dataspace', 'default']);
       expect.fail('Should have failed');
     } catch (error) {
       expect(error).to.be.instanceOf(Error);
