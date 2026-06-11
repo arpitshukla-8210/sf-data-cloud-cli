@@ -178,8 +178,9 @@ describe('file-writer', () => {
 
     it('writes NOTHING when any one component has no payload (atomic plan-then-write guarantee)', async () => {
       // A valid component FIRST, then one with neither `entitypayload` nor `data`. If the writer
-      // streamed instead of planning up front, the good component would land on disk before the bad
-      // one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree" guarantee.
+      // streamed instead of planning up front, the good component would land on disk before the
+      // bad one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree"
+      // guarantee.
       const components: RawRetrievedComponent[] = [
         {
           componentType: 'CalculatedInsight',

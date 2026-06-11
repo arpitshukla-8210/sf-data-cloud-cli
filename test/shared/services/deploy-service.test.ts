@@ -53,6 +53,13 @@ describe('deploy-service', () => {
     it('throws InvalidComponentFlagError for an empty name ("Type:")', () => {
       expect(() => parseComponentFlag('CalculatedInsight:')).to.throw(/Expected TYPE:NAME/);
     });
+
+    it('splits on the first colon, preserving colons in the name (matches source-deploy-retrieve)', () => {
+      expect(parseComponentFlag('CalculatedInsight:weird:name')).to.deep.equal({
+        componentType: 'CalculatedInsight',
+        componentName: 'weird:name',
+      });
+    });
   });
 
   describe('assembleDeployRequest', () => {

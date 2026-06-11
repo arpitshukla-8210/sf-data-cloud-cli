@@ -155,7 +155,9 @@ export async function collectTransitiveDependencies(
     );
   };
 
-  // Seed roots into `visited` so a dependency that loops back to a root is not re-read.
+  // Pre-seed roots into `visited` so any edge pointing AT a root is skipped: cycles
+  // (a dep loops back to a root) and the case where one root is a dependency of another.
+  // Shared NON-root deps are deduped separately by the visited.add below.
   for (const root of roots) {
     visited.add(`${root.componentType}:${root.componentName}`);
   }
