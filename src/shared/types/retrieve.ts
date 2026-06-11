@@ -53,10 +53,9 @@ export type RetrieveResult = {
   /** The requested component plus its server-resolved dependency graph. */
   retrievedComponents: RetrievedComponentInfo[];
   /**
-   * Dataspace-scoped write root for this retrieve (§5.2), e.g. "./data-cloud/default/".
-   * Note: dataspace-agnostic components (DataLakeObject definitions) are written OUTSIDE this
-   * directory, under "./data-cloud/data-lake-objects/". The authoritative inventory of every file
-   * written is "./data-cloud/manifest.json".
+   * Write root for this retrieve (§5.2), e.g. "./data-cloud/default/". DataLakeObject definitions
+   * are written outside this dir (./data-cloud/data-lake-objects/); see "./data-cloud/manifest.json"
+   * for the authoritative inventory of all files written.
    */
   fileWriteLocation: string;
 };

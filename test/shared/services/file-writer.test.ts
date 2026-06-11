@@ -46,7 +46,7 @@ describe('file-writer', () => {
   describe('writeRetrievedComponents', () => {
     it('writes each component to its deterministic §5.2 path with normalized entityPayload', async () => {
       const { components } = getMockRetrieveApiResponse('default');
-      const [ci, divvy, transform, dlo, account] = components;
+      const [ci, divvy, transform, , account] = components;
 
       const { filesWritten, manifestPath } = await writeRetrievedComponents(components, { baseDir: tmp });
 
@@ -59,7 +59,7 @@ describe('file-writer', () => {
         dependsOn: ci.dependsOn,
         entityPayload: ci.entitypayload,
       };
-      expect(existsSync(ciPath)).to.equal(true);
+      expect(existsSync(ciPath)).to.be.true;
       expect(readRaw(ciPath)).to.equal(onDisk(expectedCi));
 
       // DataModelObject (leaf) — dataspace-scoped, payload from `entitypayload` object.
@@ -105,8 +105,6 @@ describe('file-writer', () => {
         accountPath,
       ]);
       expect(manifestPath).to.equal(join(tmp, 'data-cloud', 'manifest.json'));
-      // Reference the unused destructured binding so the DLO is clearly part of this set.
-      expect(dlo.componentName).to.equal('myDLO');
     });
 
     it('routes a DataLakeObject to the root data-lake-objects/ folder, OUTSIDE the dataspace', async () => {
@@ -116,8 +114,8 @@ describe('file-writer', () => {
       const rootDloPath = join(tmp, 'data-cloud', 'data-lake-objects', 'myDLO.json');
       const dataspaceDloPath = join(tmp, 'data-cloud', 'default', 'data-lake-objects', 'myDLO.json');
 
-      expect(existsSync(rootDloPath)).to.equal(true);
-      expect(existsSync(dataspaceDloPath)).to.equal(false);
+      expect(existsSync(rootDloPath)).to.be.true;
+      expect(existsSync(dataspaceDloPath)).to.be.false;
 
       // DLO payload is the unwrapped `data.entityPayload` string, written verbatim.
       const dlo = components[3];
@@ -153,11 +151,10 @@ describe('file-writer', () => {
       await writeRetrievedComponents(components, { baseDir: tmp });
 
       // Dataspace-scoped component lands under the dataspace folder...
-      expect(
-        existsSync(join(tmp, 'data-cloud', 'analytics_ds', 'calculated-insights', 'highValueCustomer.json'))
-      ).to.equal(true);
+      expect(existsSync(join(tmp, 'data-cloud', 'analytics_ds', 'calculated-insights', 'highValueCustomer.json'))).to.be
+        .true;
       // ...but the DLO stays dataspace-agnostic at the root regardless of dataspace.
-      expect(existsSync(join(tmp, 'data-cloud', 'data-lake-objects', 'myDLO.json'))).to.equal(true);
+      expect(existsSync(join(tmp, 'data-cloud', 'data-lake-objects', 'myDLO.json'))).to.be.true;
     });
 
     it('silently overwrites existing files and manifest on re-retrieve', async () => {
@@ -170,13 +167,40 @@ describe('file-writer', () => {
       rmSync(ciPath);
       await writeRetrievedComponents(components, { baseDir: tmp });
 
-      expect(existsSync(ciPath)).to.equal(true);
+      expect(existsSync(ciPath)).to.be.true;
       expect(readRaw(ciPath)).to.equal(firstContent);
     });
 
     it('writes an empty manifest and no component files for an empty response', async () => {
       const { manifestPath } = await writeRetrievedComponents([], { baseDir: tmp });
       expect(readRaw(manifestPath)).to.equal(onDisk({ deploymentOrder: [] }));
+    });
+
+    it('writes NOTHING when any one component has no payload (atomic plan-then-write guarantee)', async () => {
+      // A valid component FIRST, then one with neither `entitypayload` nor `data`. If the writer
+      // streamed instead of planning up front, the good component would land on disk before the bad
+      // one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree" guarantee.
+      const components: RawRetrievedComponent[] = [
+        {
+          componentType: 'CalculatedInsight',
+          componentName: 'goodCI',
+          dataspaceName: 'default',
+          dependsOn: [],
+          entitypayload: { masterLabel: 'good' },
+        },
+        { componentType: 'DataModelObject', componentName: 'payloadlessDmo', dataspaceName: 'default', dependsOn: [] },
+      ];
+
+      try {
+        await writeRetrievedComponents(components, { baseDir: tmp });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect((error as Error).name).to.equal('MissingPayloadError');
+        expect((error as Error).message).to.match(/has no payload/);
+      }
+
+      // The entire data-cloud/ tree is absent: not the good component's file, not the manifest.
+      expect(existsSync(join(tmp, 'data-cloud'))).to.be.false;
     });
   });
 
