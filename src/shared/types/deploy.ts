@@ -22,6 +22,8 @@
  * so the command never changes when we swap the data source.
  */
 
+import { ComponentDependency } from './retrieve.js';
+
 /**
  * Deploy job lifecycle states (§5.6): the synchronous response is always CREATED; the job then
  * advances to INPROGRESS and finally SUCCESS or FAILED, polled via `sf data-cloud deploy status`.
@@ -34,4 +36,36 @@ export type DeployResult = {
   jobId: string;
   /** Initial job state from the synchronous deploy response — always 'CREATED' per contract (§5.6). */
   status: DeploymentLifecycleStatus;
+};
+
+// ─── Deploy API request types (§5.6, §6.1) ─────────────────────────────────
+
+/**
+ * One component in the deploy API request payload. Differs from the on-disk ComponentFile in two
+ * ways: the payload key is `data` (not `entityPayload`), and there is no `dataspaceName` (it lives
+ * at the request top level only).
+ */
+export type DeployRequestComponent = {
+  /** API/developer name of the component. */
+  componentName: string;
+  /** API value of the component type. */
+  componentType: string;
+  /** Direct dependencies, copied from the on-disk file's dependsOn. */
+  dependsOn: ComponentDependency[];
+  /**
+   * The component payload — verbatim from the on-disk `entityPayload`, never re-parsed (§5.6,
+   * Challenges). An object (CI, DMO) or a string (DataTransform, DLO); passed byte-for-byte.
+   */
+  data: unknown;
+};
+
+/**
+ * Full POST /ssot/devops/deploy request body (§5.6). The CLI assembles this from local files after
+ * walking transitive dependencies; the server validates and computes the topological deploy order.
+ */
+export type DeployApiRequest = {
+  /** Developer name of the dataspace context (top level, not per-component). */
+  dataSpaceName: string;
+  /** The named component plus all its transitive dependencies. */
+  components: DeployRequestComponent[];
 };

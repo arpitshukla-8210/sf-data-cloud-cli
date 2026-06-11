@@ -7,4 +7,9 @@
 module.exports = {
   extends: ['eslint-config-salesforce-typescript', 'eslint-config-salesforce-license', 'plugin:sf-plugin/recommended'],
   root: true,
+  rules: {
+    // Allow intentionally-unused, underscore-prefixed params (e.g. the deploy mock's _request,
+    // which documents the real-API payload seam without consuming it yet). Standard sf/oclif convention.
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+  },
 };
