@@ -25,14 +25,9 @@ import { FOLDER_BY_TYPE, DATASPACE_AGNOSTIC_TYPES, ROOT_DIR, MANIFEST_FILE } fro
  * Pure file-writing engine for `sf data-cloud retrieve` (PROJECT_KNOWLEDGE.md §5.1, §5.2, §5.8).
  * Takes the raw API components, writes one self-describing JSON file per component into the
  * flat-by-type, dataspace-aware `data-cloud/` tree, then writes the root manifest. Deterministic
- * file names, human-readable indented JSON, normalized `entityPayload` key — no DataKit internals.
- * Writes are idempotent (re-retrieve silently overwrites). No network, no org contact.
+ * file names, human-readable indented JSON, `entityPayload` carried through verbatim — no DataKit
+ * internals. Writes are idempotent (re-retrieve silently overwrites). No network, no org contact.
  */
-
-/** Narrows an unknown value to a plain (non-array) object so its keys can be inspected safely. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * Maps a component type to its on-disk folder name (§5.2). Throws a structured error for an
@@ -46,30 +41,6 @@ export function folderForComponentType(componentType: string): string {
     );
   }
   return FOLDER_BY_TYPE[componentType];
-}
-
-/**
- * Resolves the single, type-specific payload from a raw component, normalizing the inconsistent
- * API shape (§5.1, §5.5). Precedence: use `entitypayload` (lowercase) when present and non-null;
- * otherwise fall back to `data`, unwrapping `data.entityPayload` when `data` is an object that wraps
- * it, else using `data` verbatim; otherwise the component has no payload (a structured error).
- * `null` is treated as "absent" so a present-but-empty `entitypayload` falls through to `data`.
- * Returns the payload unchanged (object or string); it is written verbatim and never re-parsed.
- */
-export function normalizeEntityPayload(raw: RawRetrievedComponent): unknown {
-  if (raw.entitypayload !== undefined && raw.entitypayload !== null) {
-    return raw.entitypayload;
-  }
-  if (raw.data !== undefined && raw.data !== null) {
-    if (isRecord(raw.data) && 'entityPayload' in raw.data) {
-      return raw.data.entityPayload;
-    }
-    return raw.data;
-  }
-  throw new SfError(
-    `Component "${raw.componentName}" (${raw.componentType}) has no payload (neither "entitypayload" nor "data" was present).`,
-    'MissingPayloadError'
-  );
 }
 
 /**
@@ -118,7 +89,7 @@ export async function writeRetrievedComponents(
       componentName: component.componentName,
       dataspaceName: component.dataspaceName,
       dependsOn: component.dependsOn,
-      entityPayload: normalizeEntityPayload(component),
+      entityPayload: component.entityPayload,
     }),
   }));
 

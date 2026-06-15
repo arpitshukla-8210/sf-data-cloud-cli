@@ -13,17 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { TestContext } from '@salesforce/core/testSetup';
+import { TestContext, MockTestOrgData } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
+import { AnyJson } from '@salesforce/ts-types';
 import DataCloudComponentList from '../../../../src/commands/data-cloud/component/list.js';
+import { getMockComponents } from '../../../../src/shared/mocks/components.mock.js';
 
 describe('data-cloud component list', () => {
   const $$ = new TestContext();
+  const testOrg = new MockTestOrgData();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
+    await $$.stubAuths(testOrg);
+    // The catalog endpoint filters by type + dataspace server-side; the mock reproduces that
+    // (including the case-insensitive matching the cases below rely on). Pull the params off the URL.
+    $$.fakeConnectionRequest = (request: AnyJson): Promise<AnyJson> => {
+      const params = new URL(typeof request === 'string' ? request : '', 'https://example.com').searchParams;
+      const componentType = params.get('componentType') ?? '';
+      const dataSpaceName = params.get('dataSpaceName') ?? '';
+      return Promise.resolve(getMockComponents(componentType, dataSpaceName) as unknown as AnyJson);
+    };
   });
 
   afterEach(() => {
@@ -37,12 +49,12 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'default',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     expect(result.components).to.be.an('array').with.lengthOf(3);
     expect(result.components[0].componentName).to.equal('HighValueCustomers');
     // Result rows carry only the documented §5.4 keys — no internal fixture fields leak.
-    expect(result.components[0]).to.have.all.keys('componentName', 'lastModifiedDate');
+    expect(result.components[0]).to.have.all.keys('componentName');
     expect(result.components.map((c) => c.componentName)).to.deep.equal([
       'HighValueCustomers',
       'ChurnRiskScore',
@@ -57,7 +69,7 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'analytics_ds',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     expect(result.components).to.have.lengthOf(1);
     expect(result.components[0].componentName).to.equal('Custom_Transform_Engine');
@@ -70,7 +82,7 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'analytics_ds',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     expect(result.components).to.be.an('array').that.is.empty;
   });
@@ -82,7 +94,7 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'DEFAULT',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     expect(result.components).to.have.lengthOf(3);
   });
@@ -94,7 +106,7 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'default',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     const output = sfCommandStubs.log
       .getCalls()
@@ -111,20 +123,21 @@ describe('data-cloud component list', () => {
       '--dataspace',
       'default',
       '--src-org',
-      'testOrg1',
+      testOrg.username,
     ]);
     expect(sfCommandStubs.table.callCount).to.equal(1);
     const { data } = sfCommandStubs.table.firstCall.firstArg as { data: unknown[] };
     expect(data).to.deep.equal(result.components);
   });
 
-  it('fails when the required --src-org flag is missing', async () => {
+  it('fails when no org is provided and no default org is configured', async () => {
     try {
+      // No --src-org and no default target-org config: requiredOrg cannot resolve an org.
       await DataCloudComponentList.run(['--component-type', 'CalculatedInsight', '--dataspace', 'default']);
-      expect.fail('Should have thrown an error for the missing required flag');
+      expect.fail('Should have thrown an error for the missing org');
     } catch (error) {
       expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.include('Missing required flag src-org');
+      expect((error as Error).message).to.match(/org|target-org|src-org/i);
     }
   });
 });
