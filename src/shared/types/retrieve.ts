@@ -16,10 +16,10 @@
 
 /*
  * Type definitions for the Data Cloud DevOps "retrieve" contract.
- * Mirrors POST /ssot/devops/retrieve (PROJECT_KNOWLEDGE.md §1.7, §5.5), which returns the
+ * Mirrors GET /ssot/devops/component/snapshot (PROJECT_KNOWLEDGE.md §1.7, §5.5), which returns the
  * named component plus its server-resolved dependency graph.
  * These are the standardized types the service layer produces: the raw per-component payload
- * (entitypayload / data) the API returns is stripped to disk and never surfaces here.
+ * (entityPayload) the API returns is stripped to disk and never surfaces here.
  * The mock (today) and the real Connect API client (Week 2–3) both satisfy these types,
  * so the command never changes when we swap the data source.
  */
@@ -61,11 +61,11 @@ export type RetrieveResult = {
 };
 
 /**
- * One component as the raw POST /ssot/devops/retrieve API returns it (§5.5): the standardized
- * fields PLUS a raw, type-specific payload. The payload arrives under one of two inconsistent keys
- * (`entitypayload` lowercase, or `data`) and is normalized to `entityPayload` (camelCase) on disk
- * by the file-writer. These raw types are the INPUT to the service layer and never reach the
- * command's `RetrieveResult` — the payload is stripped before the standardized result is returned.
+ * One component as the raw GET /ssot/devops/component/snapshot API returns it (§5.5): the
+ * standardized fields PLUS a raw, type-specific payload under a single `entityPayload` key (always a
+ * JSON object). The file-writer carries that payload through to disk verbatim. These raw types are
+ * the INPUT to the service layer and never reach the command's `RetrieveResult` — the payload is
+ * stripped before the standardized result is returned.
  */
 export type RawRetrievedComponent = {
   /** API value of the component type, e.g. "CalculatedInsight". */
@@ -76,13 +76,11 @@ export type RawRetrievedComponent = {
   dataspaceName: string;
   /** Direct dependencies (server-resolved); empty array for leaf components. */
   dependsOn: ComponentDependency[];
-  /** Raw payload under the API's lowercase key; an object or a string. May be absent. */
-  entitypayload?: unknown;
-  /** Alternative raw payload key; either the payload itself or an object wrapping `entityPayload`. */
-  data?: unknown;
+  /** Full component definition JSON — always an object (`Map<String,Object>` on the wire). */
+  entityPayload: Record<string, unknown>;
 };
 
-/** Raw POST /ssot/devops/retrieve response (pre-strip, payloads still attached). */
+/** Raw GET /ssot/devops/component/snapshot response (pre-strip, payloads still attached). */
 export type RetrieveApiResponse = {
   /** The requested component plus its server-spidered dependencies, in deployment order. */
   components: RawRetrievedComponent[];

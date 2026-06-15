@@ -16,7 +16,7 @@
 
 /*
  * Type definitions for the Data Cloud DevOps "list components by type" contract.
- * Mirrors GET /ssot/devops/component-object-api-names (PROJECT_KNOWLEDGE.md §5.4).
+ * Mirrors GET /ssot/devops/component/catalog (PROJECT_KNOWLEDGE.md §5.4).
  * The mock (today) and the real Connect API client (Week 2–3) both satisfy these
  * types, so the command never changes when we swap the data source.
  */
@@ -25,8 +25,6 @@
 export type ComponentSummary = {
   /** API/developer name of the component, e.g. "HighValueCustomers". */
   componentName: string;
-  /** ISO-8601 timestamp of the component's last modification. */
-  lastModifiedDate: string;
 };
 
 /** Raw Connect API response shape for the component-list endpoint (§5.4). */

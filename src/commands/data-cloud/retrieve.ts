@@ -24,13 +24,11 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
 
 /*
  * Command: sf data-cloud retrieve
- * Maps to POST /ssot/devops/retrieve (PROJECT_KNOWLEDGE.md §1.7, §5.5).
- * Week 1: delegates to the retrieve service, which sources a dummy dependency graph and writes one
- * JSON file per component to the local data-cloud/ tree (§5.2) plus a manifest (§5.8). No org
- * contact yet — --src-org is accepted to match the PRD UX walkthrough and to be the target of the
- * real auth/connection wiring in Week 2–3.
- * Stays thin — all sourcing + persistence lives in shared/services, so wiring the real API later
- * touches shared/, not this file.
+ * Maps to GET /ssot/devops/component/snapshot (PROJECT_KNOWLEDGE.md §1.7, §5.5).
+ * Resolves --src-org to an authenticated connection and delegates to the retrieve service, which
+ * fetches the component plus its server-spidered dependency graph and writes one JSON file per
+ * component to the local data-cloud/ tree (§5.2) plus a manifest (§5.8).
+ * Stays thin — all sourcing + persistence lives in shared/services.
  */
 export default class DataCloudRetrieve extends SfCommand<RetrieveResult> {
   public static readonly summary = messages.getMessage('summary');
@@ -46,19 +44,20 @@ export default class DataCloudRetrieve extends SfCommand<RetrieveResult> {
       summary: messages.getMessage('flags.dataspace.summary'),
       required: true,
     }),
-    'src-org': Flags.string({
+    'src-org': Flags.requiredOrg({
       summary: messages.getMessage('flags.src-org.summary'),
-      required: true,
-      aliases: ['target-org', 'o'],
+      aliases: ['target-org'],
     }),
+    'api-version': Flags.orgApiVersion(),
   };
 
   public async run(): Promise<RetrieveResult> {
     const { flags } = await this.parse(DataCloudRetrieve);
+    const conn = flags['src-org'].getConnection(flags['api-version']);
 
-    // The service sources the (currently dummy) response, persists each component to disk (§5.2),
+    // The service fetches the snapshot from the source org, persists each component to disk (§5.2),
     // and returns the standardized result with raw payloads stripped. Writes under process.cwd().
-    const result = await retrieveComponents(flags.component, flags.dataspace);
+    const result = await retrieveComponents(conn, flags.component, flags.dataspace);
 
     // Human-readable output (auto-suppressed when --json is present).
     this.log(messages.getMessage('info.success', [result.retrievedComponents.length]));

@@ -35,9 +35,9 @@ export type ComponentFile = {
   /** Direct dependencies (server-resolved); empty array for leaf components. */
   dependsOn: ComponentDependency[];
   /**
-   * Type-specific payload, normalized to this camelCase key on disk (§5.1) regardless of whether
-   * the API returned `entitypayload` or `data`. Stored verbatim — an object or a string — and never
-   * re-parsed, so a serialized-string payload round-trips byte-for-byte on deploy.
+   * Type-specific payload under this camelCase key on disk (§5.1) — always a JSON object
+   * (`Map<String,Object>` on the wire). Stored verbatim and never re-parsed, so it round-trips
+   * byte-for-byte on deploy.
    */
   entityPayload: unknown;
 };

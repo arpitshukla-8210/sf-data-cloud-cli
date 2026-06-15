@@ -17,16 +17,13 @@
 import { RetrieveApiResponse } from '../types/retrieve.js';
 
 /*
- * DUMMY DATA — Week 1 only. Simulates the RAW POST /ssot/devops/retrieve response
+ * DUMMY DATA — Week 1 only. Simulates the RAW GET /ssot/devops/component/snapshot response
  * (PROJECT_KNOWLEDGE.md §5.5): the requested Calculated Insight plus its server-spidered Data
  * Transform, DataModelObjects, and DataLakeObject — each WITH its type-specific payload still
  * attached. This is the input the file-writer persists to disk before the service strips payloads
  * to the standardized RetrieveResult. Same 5 components, order, and dependsOn edges as
- * retrieve.mock.ts, but each one carries a payload under the inconsistent key the API really uses:
- *   - CI + the Divvy DMO use `entitypayload` (lowercase object),
- *   - the Transform + DLO use `data: { entityPayload: "<serialized string>" }` (nested camelCase),
- *   - the Account DMO uses a plain `data` object (no nested entityPayload).
- * This deliberately exercises every branch of normalizeEntityPayload. No network call is made.
+ * retrieve.mock.ts, with each one carrying its payload under a single `entityPayload` object — the
+ * shape the API really uses. No network call is made.
  *
  * TODO(Week 2–3): replace the call site in shared/services/retrieve-service.ts with a real Connect
  * API client returning RetrieveApiResponse; this fixture can then be retired.
@@ -44,7 +41,7 @@ export function getMockRetrieveApiResponse(dataspace: string): RetrieveApiRespon
         componentName: 'highValueCustomer',
         dataspaceName: dataspace,
         dependsOn: [{ componentName: 'Divvy_TripsDmo', componentType: 'DataModelObject' }],
-        entitypayload: {
+        entityPayload: {
           masterLabel: 'testCI',
           expression:
             'SELECT COUNT(Divvy_TripsDmo__dlm.DataSource__c) AS cnt__c, Divvy_TripsDmo__dlm.from_station_name__c AS grp__c FROM Divvy_TripsDmo__dlm GROUP BY grp__c',
@@ -65,7 +62,7 @@ export function getMockRetrieveApiResponse(dataspace: string): RetrieveApiRespon
         componentName: 'Divvy_TripsDmo',
         dataspaceName: dataspace,
         dependsOn: [],
-        entitypayload: {
+        entityPayload: {
           masterLabel: 'Divvy Trips',
           objectApiName: 'Divvy_TripsDmo__dlm',
           fields: [
@@ -83,8 +80,11 @@ export function getMockRetrieveApiResponse(dataspace: string): RetrieveApiRespon
           { componentName: 'myDLO', componentType: 'DataLakeObject' },
           { componentName: 'AccountDmo', componentType: 'DataModelObject' },
         ],
-        data: {
-          entityPayload: '{ "label": "My Transform", "type": "BATCH", "name": "myTransform", "version": "1" }',
+        entityPayload: {
+          label: 'My Transform',
+          type: 'BATCH',
+          name: 'myTransform',
+          version: '1',
         },
       },
       {
@@ -92,9 +92,10 @@ export function getMockRetrieveApiResponse(dataspace: string): RetrieveApiRespon
         componentName: 'myDLO',
         dataspaceName: dataspace,
         dependsOn: [{ componentName: 'AccountDmo', componentType: 'DataModelObject' }],
-        data: {
-          entityPayload:
-            '{ "type": "DLO", "developerName": "myDLO", "schema": { "externalObjectName": "my_dlo", "fields": [] } }',
+        entityPayload: {
+          type: 'DLO',
+          developerName: 'myDLO',
+          schema: { externalObjectName: 'my_dlo', fields: [] },
         },
       },
       {
@@ -102,7 +103,7 @@ export function getMockRetrieveApiResponse(dataspace: string): RetrieveApiRespon
         componentName: 'AccountDmo',
         dataspaceName: dataspace,
         dependsOn: [],
-        data: {
+        entityPayload: {
           masterLabel: 'Account',
           objectApiName: 'AccountDmo__dlm',
           fields: [

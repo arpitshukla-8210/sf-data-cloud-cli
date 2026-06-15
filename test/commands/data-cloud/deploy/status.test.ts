@@ -16,17 +16,29 @@
 import { TestContext } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
+import { Lifecycle } from '@salesforce/core';
 import DataCloudDeployStatus from '../../../../src/commands/data-cloud/deploy/status.js';
+import {
+  captureTelemetry,
+  resetTelemetry,
+  ourEvents,
+  assertAllSafe,
+  type TelemetryEvent,
+} from '../../../shared/telemetry-test-utils.js';
 
 describe('data-cloud deploy status', () => {
   const $$ = new TestContext();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
+  let telemetry: TelemetryEvent[];
 
   beforeEach(() => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
+    telemetry = [];
+    captureTelemetry(telemetry);
   });
 
   afterEach(() => {
+    resetTelemetry();
     $$.restore();
   });
 
@@ -70,5 +82,50 @@ describe('data-cloud deploy status', () => {
       expect(error).to.be.instanceOf(Error);
       expect((error as Error).message).to.include('Missing required flag job-id');
     }
+  });
+
+  describe('telemetry', () => {
+    it('emits a safe terminal-SUCCESS poll event (raw enum, not the SUCCEEDED display string)', async () => {
+      await DataCloudDeployStatus.run(['--job-id', '08PVF000002iQIb', '--target-org', 'uat-org']);
+
+      const events = ourEvents(telemetry);
+      expect(events).to.have.lengthOf(1);
+      const e = events[0];
+      expect(e.eventName).to.equal('DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL');
+      expect(e.surface).to.equal('cli');
+      expect(e.lifecycleStatus).to.equal('SUCCESS'); // raw contract enum, NOT 'SUCCEEDED'
+      expect(e.isTerminal).to.equal(true);
+      expect(e.success).to.equal(true);
+      expect(e.hadComponentError).to.equal(false);
+      expect(e.usedJson).to.be.a('boolean');
+      assertAllSafe(telemetry);
+    });
+
+    it('emits a FAILED poll event without leaking the failing component name or error message', async () => {
+      await DataCloudDeployStatus.run(['--job-id', '08PVF000002iQIb-fail', '--target-org', 'uat-org']);
+
+      const e = ourEvents(telemetry)[0];
+      expect(e.lifecycleStatus).to.equal('FAILED');
+      expect(e.isTerminal).to.equal(true);
+      expect(e.success).to.equal(false);
+      expect(e.hadComponentError).to.equal(true); // presence only
+      // The mock's componentName ('HighValueCustomers') and error message must never ship.
+      expect(JSON.stringify(e)).to.not.match(/HighValueCustomers|invalid syntax|line 4/);
+      assertAllSafe(telemetry);
+    });
+
+    it('never lets a throwing telemetry listener break the command', async () => {
+      Lifecycle.getInstance().onTelemetry(() => {
+        throw new Error('telemetry boom');
+      });
+      const result = await DataCloudDeployStatus.run(['--job-id', '08PVF000002iQIb', '--target-org', 'uat-org']);
+      expect(result.status).to.equal('SUCCESS');
+
+      const output = sfCommandStubs.log
+        .getCalls()
+        .flatMap((c) => c.args)
+        .join('\n');
+      expect(output).to.include('Status: SUCCEEDED'); // user-facing logging is unaffected
+    });
   });
 });

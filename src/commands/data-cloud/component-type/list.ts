@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { SfCommand } from '@salesforce/sf-plugins-core';
+import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
-import { getMockComponentTypes } from '../../../shared/mocks/component-types.mock.js';
+import { getComponentTypes } from '../../../shared/services/devops-api.js';
 import { ComponentTypeListResult, ComponentTypeSummary } from '../../../shared/types/component-type.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -25,23 +25,27 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
 /*
  * Command: sf data-cloud component-type list
  * Maps to GET /ssot/devops/component-types (PROJECT_KNOWLEDGE.md §1.7, §5.3).
- * Week 1: returns dummy data from shared/mocks. No flags, no org contact.
- * Stays thin — sources data from shared/ so wiring the real API later touches shared/, not this file.
+ * Resolves --src-org to an authenticated connection and lists the supported component types.
+ * Stays thin — the HTTP boundary lives in shared/services/devops-api.
  */
 export default class DataCloudComponentTypeList extends SfCommand<ComponentTypeListResult> {
   public static readonly summary = messages.getMessage('summary');
   public static readonly description = messages.getMessage('description');
   public static readonly examples = messages.getMessages('examples');
 
-  // No flags required for this command (PROJECT_KNOWLEDGE.md §2.1).
-  public static readonly flags = {};
+  public static readonly flags = {
+    'src-org': Flags.requiredOrg({
+      summary: messages.getMessage('flags.src-org.summary'),
+      aliases: ['target-org'],
+    }),
+    'api-version': Flags.orgApiVersion(),
+  };
 
   public async run(): Promise<ComponentTypeListResult> {
-    // Parse to honor global flags (e.g. --json) and stay consistent with flag-bearing commands.
-    await this.parse(DataCloudComponentTypeList);
+    const { flags } = await this.parse(DataCloudComponentTypeList);
+    const conn = flags['src-org'].getConnection(flags['api-version']);
 
-    // Source: dummy data today; swap for a Connect API client in Week 2–3.
-    const response = getMockComponentTypes();
+    const response = await getComponentTypes(conn);
 
     const componentTypes: ComponentTypeSummary[] = Object.entries(response.supportedComponentTypes).map(
       ([componentType, label]) => ({ componentType, label })

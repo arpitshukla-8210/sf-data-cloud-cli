@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect } from 'chai';
+import { Lifecycle } from '@salesforce/core';
 import {
   parseComponentFlag,
   assembleDeployRequest,
@@ -25,6 +26,13 @@ import {
 import { writeRetrievedComponents } from '../../../src/shared/services/file-writer.js';
 import { getMockRetrieveApiResponse } from '../../../src/shared/mocks/retrieve-api-response.mock.js';
 import { ComponentFile } from '../../../src/shared/types/file-layout.js';
+import {
+  captureTelemetry,
+  resetTelemetry,
+  ourEvents,
+  assertAllSafe,
+  type TelemetryEvent,
+} from '../../shared/telemetry-test-utils.js';
 
 describe('deploy-service', () => {
   describe('parseComponentFlag', () => {
@@ -105,14 +113,18 @@ describe('deploy-service', () => {
 
   describe('deployComponents', () => {
     let tmp: string;
+    let telemetry: TelemetryEvent[];
 
     beforeEach(async () => {
       tmp = mkdtempSync(join(tmpdir(), 'dc-deploy-svc-'));
       const { components } = getMockRetrieveApiResponse('default');
       await writeRetrievedComponents(components, { baseDir: tmp });
+      telemetry = [];
+      captureTelemetry(telemetry);
     });
 
     afterEach(() => {
+      resetTelemetry();
       rmSync(tmp, { recursive: true, force: true });
     });
 
@@ -135,6 +147,53 @@ describe('deploy-service', () => {
       } catch (error) {
         expect((error as Error).name).to.equal('ComponentNotFoundError');
       }
+    });
+
+    describe('telemetry', () => {
+      it('emits exactly one safe DEPLOY_COMPONENT success event with graph size and CREATED status', async () => {
+        await deployComponents('CalculatedInsight:highValueCustomer', 'default', { baseDir: tmp });
+
+        const events = ourEvents(telemetry);
+        expect(events).to.have.lengthOf(1);
+        const e = events[0];
+        expect(e.eventName).to.equal('DATACLOUD_DEVOPS_DEPLOY_COMPONENT');
+        expect(e.surface).to.equal('cli');
+        expect(e.componentType).to.equal('CalculatedInsight');
+        expect(e.success).to.equal(true);
+        expect(e.componentCount).to.equal(2); // CI + its one DMO dependency
+        expect(e.dependencyCount).to.equal(1);
+        expect(e.hadDependencies).to.equal(true);
+        expect(e.lifecycleStatus).to.equal('CREATED');
+        expect(Number.isInteger(e.durationMs)).to.equal(true);
+        expect(e.durationMs as number).to.be.at.least(0);
+        assertAllSafe(telemetry);
+      });
+
+      it('emits a single failure event with errorCode (never the message) and re-throws unchanged', async () => {
+        try {
+          await deployComponents('CalculatedInsight:doesNotExist', 'default', { baseDir: tmp });
+          expect.fail('Should have thrown');
+        } catch (error) {
+          expect((error as Error).name).to.equal('ComponentNotFoundError'); // original error preserved
+        }
+
+        const events = ourEvents(telemetry);
+        expect(events).to.have.lengthOf(1);
+        const e = events[0];
+        expect(e.success).to.equal(false);
+        expect(e.errorCode).to.equal('ComponentNotFoundError');
+        expect(Object.keys(e)).to.not.include('message');
+        assertAllSafe(telemetry);
+      });
+
+      it('never lets a throwing telemetry listener break the deploy', async () => {
+        Lifecycle.getInstance().onTelemetry(() => {
+          throw new Error('telemetry boom');
+        });
+        const result = await deployComponents('CalculatedInsight:highValueCustomer', 'default', { baseDir: tmp });
+        expect(result.status).to.equal('CREATED');
+        expect(result.jobId).to.equal('08PVF000002iQIb');
+      });
     });
   });
 });

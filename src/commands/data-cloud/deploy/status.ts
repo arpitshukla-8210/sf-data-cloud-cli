@@ -18,6 +18,7 @@ import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
 import { getMockDeployStatus } from '../../../shared/mocks/deploy-status.mock.js';
 import { DeployStatusResult } from '../../../shared/types/deploy-status.js';
+import { emitTelemetry } from '../../../shared/services/telemetry.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'data-cloud.deploy.status');
@@ -54,6 +55,20 @@ export default class DataCloudDeployStatus extends SfCommand<DeployStatusResult>
 
     // Source: dummy status today; swap for a Connect API client in Week 2–3.
     const result = getMockDeployStatus(flags['job-id']);
+
+    // Telemetry (§2.4): the only place real terminal SUCCESS/FAILED is observable (deploy itself
+    // returns a synchronous CREATED). This command has no service layer, so the emit lives here —
+    // the sanctioned command-layer exception. `void` + the never-throw helper keep run() thin and
+    // its return/logging unaffected. Reads only the safe enum and a presence boolean (never the
+    // failing component's name or error message).
+    const isTerminal = result.status === 'SUCCESS' || result.status === 'FAILED';
+    void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL', {
+      lifecycleStatus: result.status,
+      isTerminal,
+      success: result.status === 'SUCCESS',
+      hadComponentError: result.status === 'FAILED' && result.components != null,
+      usedJson: this.jsonEnabled(),
+    });
 
     // Human-readable mapping: the UX mockup surfaces 'SUCCEEDED' for the backend's terminal 'SUCCESS'
     // enum. The returned object (and --json) keeps the raw contract value; only display is mapped.

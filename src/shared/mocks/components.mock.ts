@@ -17,7 +17,7 @@
 import { ComponentsResponse, ComponentSummary } from '../types/component.js';
 
 /*
- * DUMMY DATA — Week 1 only. Simulates GET /ssot/devops/component-object-api-names
+ * DUMMY DATA — Week 1 only. Simulates GET /ssot/devops/component/catalog
  * (PROJECT_KNOWLEDGE.md §5.4), which filters server-side by componentType + dataSpaceName.
  * The real endpoint never returns the type/dataspace on each row, so we keep those keys on a
  * private fixture type and strip them before returning the §5.4 response shape ({ components }).
@@ -36,31 +36,26 @@ type MockComponentRow = ComponentSummary & {
 const allMocks: MockComponentRow[] = [
   {
     componentName: 'HighValueCustomers',
-    lastModifiedDate: '2026-06-01T14:32:00.000Z',
     componentType: 'CalculatedInsight',
     dataspace: 'default',
   },
   {
     componentName: 'ChurnRiskScore',
-    lastModifiedDate: '2026-06-02T09:15:00.000Z',
     componentType: 'CalculatedInsight',
     dataspace: 'default',
   },
   {
     componentName: 'LTVForecast',
-    lastModifiedDate: '2026-06-03T18:45:00.000Z',
     componentType: 'CalculatedInsight',
     dataspace: 'default',
   },
   {
     componentName: 'B2C_Commerce_Connection',
-    lastModifiedDate: '2026-05-20T11:22:00.000Z',
     componentType: 'DataConnection',
     dataspace: 'default',
   },
   {
     componentName: 'Custom_Transform_Engine',
-    lastModifiedDate: '2026-06-04T08:00:00.000Z',
     componentType: 'DataTransform',
     dataspace: 'analytics_ds',
   },
@@ -79,7 +74,7 @@ export function getMockComponents(componentType: string, dataspace: string): Com
         c.componentType.toLowerCase() === componentType.toLowerCase() &&
         c.dataspace.toLowerCase() === dataspace.toLowerCase()
     )
-    .map(({ componentName, lastModifiedDate }) => ({ componentName, lastModifiedDate }));
+    .map(({ componentName }) => ({ componentName }));
 
   return { components };
 }

@@ -19,6 +19,7 @@ import { DeployResult, DeployApiRequest } from '../types/deploy.js';
 import { ComponentFile } from '../types/file-layout.js';
 import { getMockDeployResult } from '../mocks/deploy.mock.js';
 import { readComponentFile, collectTransitiveDependencies } from './file-reader.js';
+import { emitTelemetry, safeComponentType } from './telemetry.js';
 
 /*
  * Orchestrator for `sf data-cloud deploy` (PROJECT_KNOWLEDGE.md §2.3, §5.6, §6.1). Mirrors
@@ -78,13 +79,48 @@ export async function deployComponents(
   dataspace: string,
   options?: { baseDir?: string }
 ): Promise<DeployResult> {
-  const baseDir = options?.baseDir ?? process.cwd();
+  // Telemetry (§2.4): one event per call, success and failure. `void` keeps it off the latency path
+  // and the helper never throws, so neither the return value nor error propagation is affected.
+  const startedAt = Date.now();
+  let componentType = 'unknown'; // bounded TYPE only; set after parse. Never the component name.
+  let componentCount = 0;
+  try {
+    const baseDir = options?.baseDir ?? process.cwd();
 
-  const { componentType, componentName } = parseComponentFlag(component);
-  const rootComponent = await readComponentFile(componentType, componentName, dataspace, { baseDir });
-  const allComponents = await collectTransitiveDependencies([rootComponent], dataspace, { baseDir });
-  const request = assembleDeployRequest(allComponents, dataspace);
+    const parsed = parseComponentFlag(component);
+    componentType = safeComponentType(parsed.componentType);
 
-  // THE ONE SWAP POINT for the real Connect API client (Week 2–3).
-  return getMockDeployResult(request);
+    const rootComponent = await readComponentFile(parsed.componentType, parsed.componentName, dataspace, { baseDir });
+    const allComponents = await collectTransitiveDependencies([rootComponent], dataspace, { baseDir });
+    componentCount = allComponents.length;
+
+    const request = assembleDeployRequest(allComponents, dataspace);
+
+    // THE ONE SWAP POINT for the real Connect API client (Week 2–3).
+    const result = getMockDeployResult(request);
+
+    const dependencyCount = componentCount > 0 ? componentCount - 1 : 0;
+    void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_COMPONENT', {
+      componentType,
+      success: true,
+      componentCount,
+      dependencyCount,
+      hadDependencies: dependencyCount > 0,
+      lifecycleStatus: result.status, // always 'CREATED' on the synchronous response (§5.6).
+      durationMs: Date.now() - startedAt,
+    });
+
+    return result;
+  } catch (err) {
+    void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_COMPONENT', {
+      componentType,
+      success: false,
+      componentCount: 0,
+      dependencyCount: 0,
+      hadDependencies: false,
+      durationMs: Date.now() - startedAt,
+      errorCode: err instanceof SfError ? err.code : 'UnexpectedError',
+    });
+    throw err; // re-throw the ORIGINAL error object — propagation unchanged.
+  }
 }

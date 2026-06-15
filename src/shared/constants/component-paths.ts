@@ -27,10 +27,11 @@ export const FOLDER_BY_TYPE: Record<string, string> = {
   DataTransform: 'data-transforms',
   DataLakeObject: 'data-lake-objects',
   IdentityResolution: 'identity-resolutions',
-  SegmentDefinition: 'segments',
-  DataStream: 'data-streams',
+  MarketSegment: 'segments',
+  DataStreamBundle: 'data-streams',
   DataConnection: 'data-connections',
   DataAction: 'data-actions',
+  DataGraph: 'data-graphs',
 };
 
 /**

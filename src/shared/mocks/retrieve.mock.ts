@@ -22,7 +22,7 @@ import { RetrieveResult } from '../types/retrieve.js';
  * (shared/mocks/retrieve-api-response.mock.ts) and writes files to disk before stripping payloads.
  * This module is no longer imported anywhere; it is retained as a concise reference for the
  * STANDARDIZED RetrieveResult shape (PROJECT_KNOWLEDGE.md §5.5) — the raw per-component payload
- * (entitypayload / data) is already stripped here, so it shows exactly what the command returns.
+ * (entityPayload) is already stripped here, so it shows exactly what the command returns.
  *
  * DUMMY DATA — Week 1 only: a Calculated Insight, a Data Transform, and the DataModelObjects /
  * DataLakeObjects the backend auto-spiders, each with its server-resolved dependsOn edges. No

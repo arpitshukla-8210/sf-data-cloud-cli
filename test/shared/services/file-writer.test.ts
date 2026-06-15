@@ -17,11 +17,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect } from 'chai';
-import {
-  folderForComponentType,
-  normalizeEntityPayload,
-  writeRetrievedComponents,
-} from '../../../src/shared/services/file-writer.js';
+import { folderForComponentType, writeRetrievedComponents } from '../../../src/shared/services/file-writer.js';
 import { getMockRetrieveApiResponse } from '../../../src/shared/mocks/retrieve-api-response.mock.js';
 import { RawRetrievedComponent } from '../../../src/shared/types/retrieve.js';
 import { ComponentFile, Manifest } from '../../../src/shared/types/file-layout.js';
@@ -50,49 +46,49 @@ describe('file-writer', () => {
 
       const { filesWritten, manifestPath } = await writeRetrievedComponents(components, { baseDir: tmp });
 
-      // CalculatedInsight — dataspace-scoped, payload from `entitypayload` object (verbatim).
+      // CalculatedInsight — dataspace-scoped, payload from the `entityPayload` object (verbatim).
       const ciPath = join(tmp, 'data-cloud', 'default', 'calculated-insights', 'highValueCustomer.json');
       const expectedCi: ComponentFile = {
         componentType: 'CalculatedInsight',
         componentName: 'highValueCustomer',
         dataspaceName: 'default',
         dependsOn: ci.dependsOn,
-        entityPayload: ci.entitypayload,
+        entityPayload: ci.entityPayload,
       };
       expect(existsSync(ciPath)).to.be.true;
       expect(readRaw(ciPath)).to.equal(onDisk(expectedCi));
 
-      // DataModelObject (leaf) — dataspace-scoped, payload from `entitypayload` object.
+      // DataModelObject (leaf) — dataspace-scoped, payload from the `entityPayload` object.
       const divvyPath = join(tmp, 'data-cloud', 'default', 'data-model-objects', 'Divvy_TripsDmo.json');
       const expectedDivvy: ComponentFile = {
         componentType: 'DataModelObject',
         componentName: 'Divvy_TripsDmo',
         dataspaceName: 'default',
         dependsOn: [],
-        entityPayload: divvy.entitypayload,
+        entityPayload: divvy.entityPayload,
       };
       expect(readRaw(divvyPath)).to.equal(onDisk(expectedDivvy));
 
-      // DataTransform — payload UNWRAPPED from `data.entityPayload`, kept as a verbatim string.
+      // DataTransform — payload carried through verbatim from the `entityPayload` object.
       const transformPath = join(tmp, 'data-cloud', 'default', 'data-transforms', 'myTransform.json');
       const expectedTransform: ComponentFile = {
         componentType: 'DataTransform',
         componentName: 'myTransform',
         dataspaceName: 'default',
         dependsOn: transform.dependsOn,
-        entityPayload: (transform.data as { entityPayload: string }).entityPayload,
+        entityPayload: transform.entityPayload,
       };
       expect(readRaw(transformPath)).to.equal(onDisk(expectedTransform));
-      expect(expectedTransform.entityPayload).to.be.a('string');
+      expect(expectedTransform.entityPayload).to.be.an('object');
 
-      // DataModelObject (leaf) — payload is the WHOLE `data` object (no nested entityPayload).
+      // DataModelObject (leaf) — payload is the `entityPayload` object, written verbatim.
       const accountPath = join(tmp, 'data-cloud', 'default', 'data-model-objects', 'AccountDmo.json');
       const expectedAccount: ComponentFile = {
         componentType: 'DataModelObject',
         componentName: 'AccountDmo',
         dataspaceName: 'default',
         dependsOn: [],
-        entityPayload: account.data,
+        entityPayload: account.entityPayload,
       };
       expect(readRaw(accountPath)).to.equal(onDisk(expectedAccount));
 
@@ -117,7 +113,7 @@ describe('file-writer', () => {
       expect(existsSync(rootDloPath)).to.be.true;
       expect(existsSync(dataspaceDloPath)).to.be.false;
 
-      // DLO payload is the unwrapped `data.entityPayload` string, written verbatim.
+      // DLO payload is the `entityPayload` object, written verbatim.
       const dlo = components[3];
       expect(dlo.componentName).to.equal('myDLO');
       const expectedDlo: ComponentFile = {
@@ -125,7 +121,7 @@ describe('file-writer', () => {
         componentName: 'myDLO',
         dataspaceName: 'default',
         dependsOn: dlo.dependsOn,
-        entityPayload: (dlo.data as { entityPayload: string }).entityPayload,
+        entityPayload: dlo.entityPayload,
       };
       expect(readRaw(rootDloPath)).to.equal(onDisk(expectedDlo));
     });
@@ -176,10 +172,11 @@ describe('file-writer', () => {
       expect(readRaw(manifestPath)).to.equal(onDisk({ deploymentOrder: [] }));
     });
 
-    it('writes NOTHING when any one component has no payload (atomic plan-then-write guarantee)', async () => {
-      // A valid component FIRST, then one with neither `entitypayload` nor `data`. If the writer
-      // streamed instead of planning up front, the good component would land on disk before the
-      // bad one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree"
+    it('writes NOTHING when any one component has an unsupported type (atomic plan-then-write guarantee)', async () => {
+      // A valid component FIRST, then one with an unsupported componentType. The path for every
+      // component is resolved synchronously up front, so the bad type throws during the plan phase
+      // before any I/O. If the writer streamed instead, the good component would land on disk before
+      // the bad one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree"
       // guarantee.
       const components: RawRetrievedComponent[] = [
         {
@@ -187,50 +184,27 @@ describe('file-writer', () => {
           componentName: 'goodCI',
           dataspaceName: 'default',
           dependsOn: [],
-          entitypayload: { masterLabel: 'good' },
+          entityPayload: { masterLabel: 'good' },
         },
-        { componentType: 'DataModelObject', componentName: 'payloadlessDmo', dataspaceName: 'default', dependsOn: [] },
+        {
+          componentType: 'NotARealType',
+          componentName: 'badType',
+          dataspaceName: 'default',
+          dependsOn: [],
+          entityPayload: {},
+        },
       ];
 
       try {
         await writeRetrievedComponents(components, { baseDir: tmp });
         expect.fail('Should have thrown');
       } catch (error) {
-        expect((error as Error).name).to.equal('MissingPayloadError');
-        expect((error as Error).message).to.match(/has no payload/);
+        expect((error as Error).name).to.equal('UnknownComponentTypeError');
+        expect((error as Error).message).to.match(/Unknown component type/);
       }
 
       // The entire data-cloud/ tree is absent: not the good component's file, not the manifest.
       expect(existsSync(join(tmp, 'data-cloud'))).to.be.false;
-    });
-  });
-
-  describe('normalizeEntityPayload', () => {
-    const base = { componentType: 'DataModelObject', componentName: 'X', dataspaceName: 'default', dependsOn: [] };
-
-    it('prefers a present entitypayload object', () => {
-      const raw: RawRetrievedComponent = { ...base, entitypayload: { a: 1 } };
-      expect(normalizeEntityPayload(raw)).to.deep.equal({ a: 1 });
-    });
-
-    it('unwraps data.entityPayload (kept as a verbatim string)', () => {
-      const raw: RawRetrievedComponent = { ...base, data: { entityPayload: '{ "x": 1 }' } };
-      expect(normalizeEntityPayload(raw)).to.equal('{ "x": 1 }');
-    });
-
-    it('uses the whole data object when it has no nested entityPayload', () => {
-      const raw: RawRetrievedComponent = { ...base, data: { masterLabel: 'Account' } };
-      expect(normalizeEntityPayload(raw)).to.deep.equal({ masterLabel: 'Account' });
-    });
-
-    it('treats a null entitypayload as absent and falls through to data', () => {
-      const raw: RawRetrievedComponent = { ...base, entitypayload: null, data: { fromData: true } };
-      expect(normalizeEntityPayload(raw)).to.deep.equal({ fromData: true });
-    });
-
-    it('throws a structured error when neither payload key is present', () => {
-      const raw: RawRetrievedComponent = { ...base };
-      expect(() => normalizeEntityPayload(raw)).to.throw(/has no payload/);
     });
   });
 
