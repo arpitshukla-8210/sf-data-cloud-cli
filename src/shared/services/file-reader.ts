@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { ComponentFile } from '../types/file-layout.js';
-import { FOLDER_BY_TYPE, DATASPACE_AGNOSTIC_TYPES, ROOT_DIR } from '../constants/component-paths.js';
+import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR } from '../constants/component-paths.js';
 
 /*
  * Pure file-reading engine for `sf data-cloud deploy` (PROJECT_KNOWLEDGE.md §5.2, §6.1). The inverse
@@ -31,8 +31,9 @@ import { FOLDER_BY_TYPE, DATASPACE_AGNOSTIC_TYPES, ROOT_DIR } from '../constants
 const REQUIRED_FIELDS = ['componentType', 'componentName', 'dataspaceName', 'dependsOn', 'entityPayload'];
 
 /**
- * Computes the absolute on-disk path for a component (§5.2). DLOs route to
- * `<baseDir>/data-cloud/<folder>/<name>.json` (root); all others to
+ * Computes the canonical absolute on-disk path for a component (§5.2) — where the file-writer puts
+ * it. Root-routed components (DLOs, or any with an empty/absent dataspaceName) live at
+ * `<baseDir>/data-cloud/<folder>/<name>.json`; all others at
  * `<baseDir>/data-cloud/<dataspaceName>/<folder>/<name>.json`.
  *
  * @throws SfError('UnknownComponentTypeError') when the type has no known folder.
@@ -51,10 +52,29 @@ export function pathForComponent(
   }
   const folder = FOLDER_BY_TYPE[componentType];
   const fileName = `${componentName}.json`;
-  if (DATASPACE_AGNOSTIC_TYPES.has(componentType)) {
+  if (isRootRouted(componentType, dataspaceName)) {
     return join(baseDir, ROOT_DIR, folder, fileName);
   }
   return join(baseDir, ROOT_DIR, dataspaceName, folder, fileName);
+}
+
+/**
+ * Ordered candidate paths to read a component from, ROOT FIRST then the dataspace path (§6.1). A
+ * component stored without a dataspace (at the root) is therefore found even when a dataspace
+ * context is passed; for root-routed types the root is the only candidate.
+ *
+ * @throws SfError('UnknownComponentTypeError') when the type has no known folder.
+ */
+function candidatePaths(
+  componentType: string,
+  componentName: string,
+  dataspaceName: string,
+  baseDir: string
+): string[] {
+  // Validates the type and yields the canonical (writer) path.
+  const canonical = pathForComponent(componentType, componentName, dataspaceName, baseDir);
+  const rootPath = join(baseDir, ROOT_DIR, FOLDER_BY_TYPE[componentType], `${componentName}.json`);
+  return canonical === rootPath ? [rootPath] : [rootPath, canonical];
 }
 
 /**
@@ -70,21 +90,34 @@ export async function readComponentFile(
   dataspaceName: string,
   options: { baseDir: string }
 ): Promise<ComponentFile> {
-  const filePath = pathForComponent(componentType, componentName, dataspaceName, options.baseDir);
+  // Try the root path first, then the dataspace path (§6.1): a component stored without a dataspace
+  // is found even when a dataspace context is passed. On a miss we report the canonical writer
+  // location (the last candidate) — where `retrieve` would have placed this type/dataspace.
+  const candidates = candidatePaths(componentType, componentName, dataspaceName, options.baseDir);
+  const canonicalPath = candidates[candidates.length - 1];
 
-  let raw: string;
-  try {
-    raw = await readFile(filePath, 'utf8');
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      throw new SfError(
-        `Component "${componentType}:${componentName}" not found at expected path: ${filePath}. ` +
-          'Run "sf data-cloud retrieve" first.',
-        'ComponentNotFoundError'
-      );
+  let raw: string | undefined;
+  let filePath: string | undefined;
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      raw = await readFile(candidate, 'utf8');
+      filePath = candidate;
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue; // Not here — try the next candidate.
+      }
+      throw err; // Permission errors, etc. — propagate unchanged.
     }
-    throw err; // Permission errors, etc. — propagate unchanged.
+  }
+
+  if (raw === undefined || filePath === undefined) {
+    throw new SfError(
+      `Component "${componentType}:${componentName}" not found at expected path: ${canonicalPath}. ` +
+        'Run "sf data-cloud retrieve" first.',
+      'ComponentNotFoundError'
+    );
   }
 
   let parsed: unknown;

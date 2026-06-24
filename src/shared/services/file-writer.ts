@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { RawRetrievedComponent } from '../types/retrieve.js';
 import { ComponentFile, Manifest, ManifestEntry } from '../types/file-layout.js';
-import { FOLDER_BY_TYPE, DATASPACE_AGNOSTIC_TYPES, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
+import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
 
 /*
  * Pure file-writing engine for `sf data-cloud retrieve` (PROJECT_KNOWLEDGE.md §5.1, §5.2, §5.8).
@@ -44,14 +44,15 @@ export function folderForComponentType(componentType: string): string {
 }
 
 /**
- * Computes the absolute on-disk path for a component (§5.2). Dataspace-agnostic types (DLOs) route
- * to `<baseDir>/data-cloud/<folder>/<name>.json` (root); all others to
+ * Computes the absolute on-disk path for a component (§5.2). Root-routed components (dataspace-
+ * agnostic types like DLOs, or any component with an empty/absent dataspaceName) route to
+ * `<baseDir>/data-cloud/<folder>/<name>.json`; all others to
  * `<baseDir>/data-cloud/<dataspaceName>/<folder>/<name>.json`.
  */
 function pathForComponent(component: RawRetrievedComponent, baseDir: string): string {
   const folder = folderForComponentType(component.componentType);
   const fileName = `${component.componentName}.json`;
-  if (DATASPACE_AGNOSTIC_TYPES.has(component.componentType)) {
+  if (isRootRouted(component.componentType, component.dataspaceName)) {
     return join(baseDir, ROOT_DIR, folder, fileName);
   }
   return join(baseDir, ROOT_DIR, component.dataspaceName, folder, fileName);
@@ -82,12 +83,14 @@ export async function writeRetrievedComponents(
   options: { baseDir: string }
 ): Promise<{ filesWritten: string[]; manifestPath: string }> {
   // Resolve everything synchronously first: a bad type/payload throws here, before any I/O.
+  // Normalize a null/absent dataspaceName to '' so the on-disk file stays self-describing and the
+  // file-reader's required-field check (which rejects `undefined`) still passes (§5.1).
   const plannedFiles = components.map((component) => ({
     path: pathForComponent(component, options.baseDir),
     content: serialize({
       componentType: component.componentType,
       componentName: component.componentName,
-      dataspaceName: component.dataspaceName,
+      dataspaceName: component.dataspaceName ?? '',
       dependsOn: component.dependsOn,
       entityPayload: component.entityPayload,
     }),
@@ -96,7 +99,7 @@ export async function writeRetrievedComponents(
   const deploymentOrder: ManifestEntry[] = components.map((component) => ({
     componentType: component.componentType,
     componentName: component.componentName,
-    dataspaceName: component.dataspaceName,
+    dataspaceName: component.dataspaceName ?? '',
   }));
   const manifestPath = join(options.baseDir, ROOT_DIR, MANIFEST_FILE);
 

@@ -4,9 +4,9 @@ Deploy a Data Cloud component and its dependencies to a target org.
 
 # description
 
-Starts an asynchronous deployment of a Data Cloud component to the target org and returns a job ID you can poll for status.
+Starts an asynchronous deployment of a Data Cloud component and its dependencies to the target org.
 
-This command currently returns dummy data and does not contact an org. The deploy runs in the background; the call returns immediately with a job ID in the CREATED state. Track progress with "sf data-cloud deploy status".
+The command reads the component plus its transitive dependencies from the local data-cloud/ tree and submits them to the org. The deploy runs in the background; the call returns immediately with a submission status of SUBMITTED. Detailed per-job status tracking is not yet available.
 
 # flags.component.summary
 
@@ -26,9 +26,9 @@ Username or alias of the target org to deploy to.
 
   <%= config.bin %> <%= command.id %> --component CalculatedInsight:HighValueCustomers --dataspace default --target-org uat-org
 
-# info.started
+# info.submitted
 
-✓ Deployment started for %s in dataspace %s.
+✓ Deployment submitted for %s in dataspace %s.
 
 # info.jobId
 
@@ -38,6 +38,6 @@ Job ID: %s
 
 Status: %s
 
-# info.pollHint
+# info.statusNote
 
-Track progress with: sf data-cloud deploy status --job-id %s --target-org %s
+Status tracking for this deployment is not yet available.

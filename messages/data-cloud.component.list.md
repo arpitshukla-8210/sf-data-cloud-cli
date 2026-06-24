@@ -12,7 +12,7 @@ API name of the component type to filter by (for example, CalculatedInsight).
 
 # flags.dataspace.summary
 
-Developer name of the dataspace to scope the lookup to.
+Developer name of the dataspace to scope the lookup to. Optional; if omitted, the org's default dataspace context is used.
 
 # flags.src-org.summary
 
@@ -31,3 +31,7 @@ Username or alias of the source org to list components from.
 # info.found
 
 Found %s components matching type '%s' in dataspace '%s'.
+
+# info.foundNoDataspace
+
+Found %s components matching type '%s'.

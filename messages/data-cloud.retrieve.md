@@ -12,7 +12,7 @@ The component to retrieve, in TYPE:NAME format (for example, CalculatedInsight:h
 
 # flags.dataspace.summary
 
-Developer name of the dataspace context.
+Developer name of the dataspace context. Optional; if omitted, the org's default dataspace context is used and components are written to the data-cloud/ root.
 
 # flags.src-org.summary
 

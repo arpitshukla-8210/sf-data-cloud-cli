@@ -24,12 +24,22 @@ Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
 const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'data-cloud.deploy.status');
 
 /*
+ * Maps a terminal FAILED status to a machine-parseable classification code for agent/CI consumers
+ * (§5.7) — never the failing component name or the raw error message. The mock surfaces a single
+ * component-level validation failure; the real backend will carry a richer classification to map
+ * here later. Only called when status === 'FAILED'.
+ */
+function deriveDeployErrorCode(result: DeployStatusResult): string {
+  return result.components != null ? 'ComponentValidationError' : 'DeployJobFailed';
+}
+
+/*
  * Command: sf data-cloud deploy status
  * Maps to GET /ssot/devops/deploy/{jobId}/status (PROJECT_KNOWLEDGE.md §1.7, §5.7).
- * Week 1: returns a dummy status from shared/mocks — no org contact, no network call.
- * Polls the async deploy job started by `sf data-cloud deploy` until it reaches a terminal state.
- * --target-org is accepted now to match the PRD UX walkthrough and to be the target of the real
- * auth/connection wiring in Week 2–3.
+ * The server endpoint is NOT yet implemented (and the deploy command does not return a real jobId
+ * yet), so this command remains mock-backed — it demonstrates the eventual poll UX without an org
+ * contact or network call. It will be wired to the real API once the backend lands the status
+ * endpoint. --target-org stays a plain string for the same reason (no real connection is used).
  * Stays thin — sources data from shared/ so wiring the real API later touches shared/, not this file.
  */
 export default class DataCloudDeployStatus extends SfCommand<DeployStatusResult> {
@@ -63,11 +73,14 @@ export default class DataCloudDeployStatus extends SfCommand<DeployStatusResult>
     // failing component's name or error message).
     const isTerminal = result.status === 'SUCCESS' || result.status === 'FAILED';
     void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL', {
+      // correlationId: omitted until deploy backend is live
       lifecycleStatus: result.status,
       isTerminal,
       success: result.status === 'SUCCESS',
       hadComponentError: result.status === 'FAILED' && result.components != null,
       usedJson: this.jsonEnabled(),
+      // Machine-parseable classification for agent/CI consumers; present only on a terminal FAILED.
+      ...(result.status === 'FAILED' && { errorCode: deriveDeployErrorCode(result) }),
     });
 
     // Human-readable mapping: the UX mockup surfaces 'SUCCEEDED' for the backend's terminal 'SUCCESS'

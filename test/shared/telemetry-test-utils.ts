@@ -25,6 +25,9 @@ import { Lifecycle } from '@salesforce/core';
 /** A captured telemetry payload (Lifecycle.onTelemetry hands callers a flat Record). */
 export type TelemetryEvent = Record<string, unknown>;
 
+/** RFC-4122 v4 UUID shape, for asserting a client-generated correlationId. */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Registers a synchronous capture listener that pushes every emitted event into `sink`. The push
  * runs DURING emit() (before the awaited service/command call returns), so tests can assert on

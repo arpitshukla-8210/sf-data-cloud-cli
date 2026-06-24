@@ -142,6 +142,32 @@ describe('file-writer', () => {
       expect(readRaw(manifestPath)).to.equal(onDisk(expectedManifest));
     });
 
+    it('routes a component with an empty dataspaceName to the data-cloud/ root (no dataspace folder)', async () => {
+      // A dataspace-scoped TYPE (DataModelObject) but with no dataspace → root, like a DLO.
+      const components: RawRetrievedComponent[] = [
+        {
+          componentType: 'DataModelObject',
+          componentName: 'RootlessDmo',
+          dataspaceName: '',
+          dependsOn: [],
+          entityPayload: { masterLabel: 'Rootless' },
+        },
+      ];
+      await writeRetrievedComponents(components, { baseDir: tmp });
+
+      const rootPath = join(tmp, 'data-cloud', 'data-model-objects', 'RootlessDmo.json');
+      expect(existsSync(rootPath)).to.be.true;
+      // The persisted file is self-describing with an empty dataspaceName.
+      const expected: ComponentFile = {
+        componentType: 'DataModelObject',
+        componentName: 'RootlessDmo',
+        dataspaceName: '',
+        dependsOn: [],
+        entityPayload: { masterLabel: 'Rootless' },
+      };
+      expect(readRaw(rootPath)).to.equal(onDisk(expected));
+    });
+
     it('honors a non-default dataspace in the write paths', async () => {
       const { components } = getMockRetrieveApiResponse('analytics_ds');
       await writeRetrievedComponents(components, { baseDir: tmp });

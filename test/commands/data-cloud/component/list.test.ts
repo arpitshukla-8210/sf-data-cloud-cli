@@ -130,6 +130,24 @@ describe('data-cloud component list', () => {
     expect(data).to.deep.equal(result.components);
   });
 
+  it('runs without --dataspace and logs a count line that omits the dataspace clause', async () => {
+    const result = await DataCloudComponentList.run([
+      '--component-type',
+      'CalculatedInsight',
+      '--src-org',
+      testOrg.username,
+    ]);
+
+    const output = sfCommandStubs.log
+      .getCalls()
+      .flatMap((c) => c.args)
+      .join('\n');
+    // The no-dataspace message variant is used — never "in dataspace 'undefined'".
+    expect(output).to.include(`Found ${result.components.length} components matching type 'CalculatedInsight'`);
+    expect(output).to.not.include('in dataspace');
+    expect(output).to.not.include('undefined');
+  });
+
   it('fails when no org is provided and no default org is configured', async () => {
     try {
       // No --src-org and no default target-org config: requiredOrg cannot resolve an org.

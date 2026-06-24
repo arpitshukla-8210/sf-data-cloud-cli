@@ -16,15 +16,17 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { TestContext } from '@salesforce/core/testSetup';
+import { TestContext, MockTestOrgData } from '@salesforce/core/testSetup';
 import { expect } from 'chai';
 import { stubSfCommandUx } from '@salesforce/sf-plugins-core';
-import DataCloudDeploy from '../../../src/commands/data-cloud/deploy.js';
+import { AnyJson } from '@salesforce/ts-types';
+import DataCloudDeploy from '../../../src/commands/data-cloud/deploy/index.js';
 import { writeRetrievedComponents } from '../../../src/shared/services/file-writer.js';
 import { getMockRetrieveApiResponse } from '../../../src/shared/mocks/retrieve-api-response.mock.js';
 
 describe('data-cloud deploy', () => {
   const $$ = new TestContext();
+  const testOrg = new MockTestOrgData();
   let sfCommandStubs: ReturnType<typeof stubSfCommandUx>;
   // The command reads the data-cloud/ tree from process.cwd(); isolate it in a throwaway dir and
   // pre-populate it with exactly what retrieve writes, so deploy has real files to read.
@@ -33,6 +35,10 @@ describe('data-cloud deploy', () => {
 
   beforeEach(async () => {
     sfCommandStubs = stubSfCommandUx($$.SANDBOX);
+    await $$.stubAuths(testOrg);
+    // The deploy POST is faked at the HTTP boundary; the backend returns a SUBMITTED ack + jobId.
+    $$.fakeConnectionRequest = (): Promise<AnyJson> =>
+      Promise.resolve({ status: 'SUBMITTED', jobId: '08PVF000002iQIb' } as unknown as AnyJson);
     origCwd = process.cwd();
     tmp = mkdtempSync(join(tmpdir(), 'dc-deploy-cmd-'));
     process.chdir(tmp);
@@ -47,38 +53,38 @@ describe('data-cloud deploy', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('starts an async deploy and returns a tracking jobId in the CREATED state', async () => {
+  it('submits an async deploy and returns the SUBMITTED status with its jobId', async () => {
     const result = await DataCloudDeploy.run([
       '--component',
       'CalculatedInsight:highValueCustomer',
       '--dataspace',
       'default',
       '--target-org',
-      'uat-org',
+      testOrg.username,
     ]);
 
-    // Matches the synchronous deploy response contract (§5.6): { jobId, CREATED }.
-    expect(result.status).to.equal('CREATED');
+    // Matches the synchronous deploy response: { status: 'SUBMITTED', jobId }.
+    expect(result.status).to.equal('SUBMITTED');
     expect(result.jobId).to.equal('08PVF000002iQIb');
 
     const output = sfCommandStubs.log
       .getCalls()
       .flatMap((c) => c.args)
       .join('\n');
-    // Echoes the requested component + dataspace, the jobId, the real CREATED status, and a poll hint.
-    expect(output).to.include('Deployment started for CalculatedInsight:highValueCustomer in dataspace default');
+    // Echoes the requested component + dataspace, the submission status, the jobId, and the note.
+    expect(output).to.include('Deployment submitted for CalculatedInsight:highValueCustomer in dataspace default');
+    expect(output).to.include('Status: SUBMITTED');
     expect(output).to.include('Job ID: 08PVF000002iQIb');
-    expect(output).to.include('Status: CREATED');
-    expect(output).to.include('sf data-cloud deploy status --job-id 08PVF000002iQIb --target-org uat-org');
+    expect(output).to.include('Status tracking for this deployment is not yet available.');
   });
 
-  it('fails if the required target-org flag is missing', async () => {
+  it('fails if the required target-org flag is missing and no default org is configured', async () => {
     try {
       await DataCloudDeploy.run(['--component', 'CalculatedInsight:highValueCustomer', '--dataspace', 'default']);
       expect.fail('Should have failed');
     } catch (error) {
       expect(error).to.be.instanceOf(Error);
-      expect((error as Error).message).to.include('Missing required flag target-org');
+      expect((error as Error).message).to.match(/org|target-org|default environment/i);
     }
   });
 });

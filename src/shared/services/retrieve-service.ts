@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Connection, SfError } from '@salesforce/core';
 import { RetrieveResult } from '../types/retrieve.js';
 import { writeRetrievedComponents } from './file-writer.js';
@@ -35,18 +36,21 @@ import { emitTelemetry, safeComponentType } from './telemetry.js';
  *
  * @param conn - authenticated connection to the source org.
  * @param component - the user-requested component in TYPE:NAME form, echoed back as targetComponent.
- * @param dataspace - developer name of the dataspace the retrieve is scoped to.
+ * @param dataspace - developer name of the dataspace the retrieve is scoped to; omitted scopes to the org's default dataspace.
  * @param options - optional settings; `baseDir` is the directory the `data-cloud/` tree is written under (defaults to the current working directory, so tests can target a throwaway directory).
  */
 export async function retrieveComponents(
   conn: Connection,
   component: string,
-  dataspace: string,
+  dataspace?: string,
   options?: { baseDir?: string }
 ): Promise<RetrieveResult> {
   // Telemetry (§2.4): one event per call, success and failure. `void` keeps it off the latency path
   // and the helper never throws, so neither the return value nor error propagation is affected.
   const startedAt = Date.now();
+  // Client-generated CLI-side trace id for the whole retrieve operation (§2.4). Emitted in telemetry
+  // now; threading it as a request header to Connect API -> DataKit awaits the backend contract.
+  const correlationId = randomUUID();
   let componentType = 'unknown'; // bounded TYPE only; set after parse. Never the component name.
   let componentCount = 0;
   try {
@@ -71,14 +75,16 @@ export async function retrieveComponents(
     }));
 
     const result: RetrieveResult = {
-      dataspace,
+      // Empty when no dataspace was given; components then route to the data-cloud/ root (§5.2).
+      dataspace: dataspace ?? '',
       targetComponent: component,
       retrievedComponents,
-      fileWriteLocation: `./data-cloud/${dataspace}/`,
+      fileWriteLocation: dataspace ? `./data-cloud/${dataspace}/` : './data-cloud/',
     };
 
     const dependencyCount = componentCount > 0 ? componentCount - 1 : 0;
     void emitTelemetry('DATACLOUD_DEVOPS_RETRIEVE_COMPONENT', {
+      correlationId,
       componentType,
       success: true,
       componentCount,
@@ -90,6 +96,7 @@ export async function retrieveComponents(
     return result;
   } catch (err) {
     void emitTelemetry('DATACLOUD_DEVOPS_RETRIEVE_COMPONENT', {
+      correlationId,
       componentType,
       success: false,
       componentCount: 0,
