@@ -54,9 +54,10 @@ export function safeComponentType(componentType: string): string {
  */
 export async function emitTelemetry(eventName: string, attributes: TelemetryAttributes): Promise<void> {
   try {
-    // `surface` distinguishes the CLI from the future MCP / Agentforce surfaces (§2.5); a
-    // `correlationId` spanning CLI -> Connect API -> DataKit (§2.4) is reserved for when the real
-    // API client is wired (Week 2-3) — there is no real request id to thread while on mocks.
+    // `surface` distinguishes the CLI from the future MCP / Agentforce surfaces (§2.5). Callers on a
+    // real request path attach a client-generated `correlationId` (§2.4) as the CLI-side trace id;
+    // propagating it as a request header to Connect API -> DataKit awaits the backend trace-header
+    // contract. Mock-only events (deploy, deploy status) omit it — no real request is made.
     await Lifecycle.getInstance().emitTelemetry({ eventName, surface: 'cli', ...attributes });
   } catch {
     // Telemetry is best-effort: a listener/emit failure must never reach the caller. A real

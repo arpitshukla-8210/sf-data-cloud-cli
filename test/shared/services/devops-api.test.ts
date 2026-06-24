@@ -15,24 +15,35 @@
  */
 import { expect } from 'chai';
 import { Connection, SfError, Lifecycle } from '@salesforce/core';
-import { getComponentTypes, getComponents, getSnapshot } from '../../../src/shared/services/devops-api.js';
+import {
+  getComponentTypes,
+  getComponents,
+  getSnapshot,
+  createPromotion,
+} from '../../../src/shared/services/devops-api.js';
+import { DeployApiRequest } from '../../../src/shared/types/deploy.js';
 import {
   captureTelemetry,
   resetTelemetry,
   ourEvents,
   assertAllSafe,
+  UUID_RE,
   type TelemetryEvent,
 } from '../../shared/telemetry-test-utils.js';
 
+/** A recorded request: a bare URL string (GET) or the HttpRequest object passed for a POST. */
+type RecordedRequest = string | { method?: string; url?: string; body?: unknown; headers?: Record<string, string> };
+
 /**
- * Builds a stand-in Connection: `request` records the URL it was called with and resolves to
- * `response`, or rejects with `reject` when provided (to exercise the error-mapping branches).
+ * Builds a stand-in Connection: `request` records what it was called with — a URL string for GETs
+ * or the full HttpRequest object for POSTs — and resolves to `response`, or rejects with `reject`
+ * when provided (to exercise the error-mapping branches).
  */
-const makeConn = (opts: { response?: unknown; reject?: unknown }): { conn: Connection; calls: string[] } => {
-  const calls: string[] = [];
+const makeConn = (opts: { response?: unknown; reject?: unknown }): { conn: Connection; calls: RecordedRequest[] } => {
+  const calls: RecordedRequest[] = [];
   const conn = {
     getApiVersion: () => '62.0',
-    request: (request: string) => {
+    request: (request: RecordedRequest) => {
       calls.push(request);
       return opts.reject ? Promise.reject(opts.reject) : Promise.resolve(opts.response);
     },
@@ -65,10 +76,115 @@ describe('devops-api', () => {
       );
     });
 
+    it('omits dataSpaceName from the catalog path when no dataspace is given', async () => {
+      const { conn, calls } = makeConn({ response: { components: [] } });
+      await getComponents(conn, 'CalculatedInsight');
+      expect(calls[0]).to.equal('/services/data/v62.0/ssot/devops/component/catalog?componentType=CalculatedInsight');
+      expect(calls[0]).to.not.match(/dataSpaceName/);
+    });
+
+    it('omits dataSpaceName from the snapshot path when no dataspace is given', async () => {
+      const { conn, calls } = makeConn({ response: { components: [] } });
+      await getSnapshot(conn, 'CalculatedInsight', 'highValueCustomer');
+      expect(calls[0]).to.equal(
+        '/services/data/v62.0/ssot/devops/component/snapshot?componentType=CalculatedInsight&componentName=highValueCustomer'
+      );
+      expect(calls[0]).to.not.match(/dataSpaceName/);
+    });
+
     it('returns the parsed response body verbatim', async () => {
       const body = { supportedComponentTypes: { CalculatedInsight: 'Calculated Insight' } };
       const { conn } = makeConn({ response: body });
       expect(await getComponentTypes(conn)).to.deep.equal(body);
+    });
+  });
+
+  describe('createPromotion (deploy POST)', () => {
+    // The request body wraps a `components` array — each element with its payload under
+    // `entityPayload` and `dataspaceName` per-component.
+    const sampleRequest: DeployApiRequest = [
+      {
+        componentType: 'CalculatedInsight',
+        componentName: 'highValueCustomer',
+        dataspaceName: 'default',
+        dependsOn: [{ componentName: 'Divvy_TripsDmo', componentType: 'DataModelObject' }],
+        entityPayload: { masterLabel: 'testCI' },
+      },
+    ];
+
+    it('POSTs the versioned deploy path with the JSON-stringified request body', async () => {
+      const { conn, calls } = makeConn({ response: { status: 'SUBMITTED', jobId: '08PVF000002iQIb' } });
+      await createPromotion(conn, sampleRequest);
+
+      expect(calls).to.have.lengthOf(1);
+      const call = calls[0];
+      expect(call).to.be.an('object');
+      const req = call as { method?: string; url?: string; body?: unknown };
+      expect(req.method).to.equal('POST');
+      expect(req.url).to.equal('/services/data/v62.0/ssot/devops/component/promotion');
+      expect(req.body).to.equal(JSON.stringify({ components: sampleRequest }));
+      // The serialized body wraps the components array in a top-level `components` object.
+      expect(req.body).to.be.a('string').and.to.match(/^\{"components":\[/);
+    });
+
+    it('returns the parsed submission ack verbatim ({ status: "SUBMITTED", jobId })', async () => {
+      const { conn } = makeConn({ response: { status: 'SUBMITTED', jobId: '08PVF000002iQIb' } });
+      const resp = await createPromotion(conn, sampleRequest);
+      expect(resp).to.deep.equal({ status: 'SUBMITTED', jobId: '08PVF000002iQIb' });
+      expect(resp.jobId).to.equal('08PVF000002iQIb');
+    });
+
+    it('maps an invalid session to an actionable auth error', async () => {
+      const { conn } = makeConn({ reject: { errorCode: 'INVALID_SESSION_ID', message: 'Session expired' } });
+      try {
+        await createPromotion(conn, sampleRequest);
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiAuthError');
+      }
+    });
+
+    it('maps a 404 to an actionable not-found error', async () => {
+      const { conn } = makeConn({ reject: { name: 'NOT_FOUND', message: 'gone' } });
+      try {
+        await createPromotion(conn, sampleRequest);
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiNotFoundError');
+      }
+    });
+
+    it('maps a DNS/domain failure to a network error', async () => {
+      const { conn } = makeConn({ reject: { name: 'DomainNotFoundError', message: 'getaddrinfo ENOTFOUND' } });
+      try {
+        await createPromotion(conn, sampleRequest);
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiNetworkError');
+      }
+    });
+
+    it('falls back to a generic API error for unrecognized failures', async () => {
+      const { conn } = makeConn({ reject: { errorCode: 'WEIRD_BACKEND_ERROR', message: 'something odd' } });
+      try {
+        await createPromotion(conn, sampleRequest);
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiError');
+        expect((err as SfError).message).to.include('something odd');
+      }
+    });
+
+    it('does NOT emit telemetry (the deploy orchestration event is emitted by deploy-service)', async () => {
+      const telemetry: TelemetryEvent[] = [];
+      captureTelemetry(telemetry);
+      try {
+        const { conn } = makeConn({ response: { status: 'SUBMITTED' } });
+        await createPromotion(conn, sampleRequest);
+        expect(ourEvents(telemetry)).to.have.lengthOf(0);
+      } finally {
+        resetTelemetry();
+      }
     });
   });
 
@@ -151,12 +267,26 @@ describe('devops-api', () => {
       const e = events[0];
       expect(e.eventName).to.equal('DATACLOUD_DEVOPS_API_REQUEST');
       expect(e.surface).to.equal('cli');
+      expect(e.correlationId).to.match(UUID_RE); // client-generated CLI-side trace id
       expect(e.operation).to.equal('componentTypes');
       expect(Object.keys(e)).to.not.include('componentType'); // no type arg for this fn
       expect(e.success).to.equal(true);
       expect(e.resultCount).to.equal(2);
       expect(Number.isInteger(e.durationMs)).to.equal(true);
       assertAllSafe(telemetry);
+    });
+
+    it('generates a fresh correlationId per request (not a constant)', async () => {
+      const { conn: conn1 } = makeConn({ response: { supportedComponentTypes: {} } });
+      const { conn: conn2 } = makeConn({ response: { supportedComponentTypes: {} } });
+      await getComponentTypes(conn1);
+      await getComponentTypes(conn2);
+
+      const ids = ourEvents(telemetry).map((e) => e.correlationId);
+      expect(ids).to.have.lengthOf(2);
+      expect(ids[0]).to.match(UUID_RE);
+      expect(ids[1]).to.match(UUID_RE);
+      expect(ids[0]).to.not.equal(ids[1]);
     });
 
     it('emits a safe API_REQUEST success event for components (bounded type, real count)', async () => {
@@ -192,6 +322,7 @@ describe('devops-api', () => {
       const events = ourEvents(telemetry);
       expect(events).to.have.lengthOf(1);
       const e = events[0];
+      expect(e.correlationId).to.match(UUID_RE); // present on the failure path too
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('DataCloudApiAuthError');
       expect(e.resultCount).to.equal(0);

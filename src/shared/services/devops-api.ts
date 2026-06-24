@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Connection, SfError } from '@salesforce/core';
 import { ComponentTypesResponse } from '../types/component-type.js';
 import { ComponentsResponse } from '../types/component.js';
 import { RetrieveApiResponse } from '../types/retrieve.js';
+import { DeployApiRequest, DeployApiResponse } from '../types/deploy.js';
 import { emitTelemetry, safeComponentType } from './telemetry.js';
 
 /*
@@ -82,10 +84,14 @@ function toSfError(err: unknown, op: string): SfError {
  */
 export async function getComponentTypes(conn: Connection): Promise<ComponentTypesResponse> {
   const startedAt = Date.now();
+  // Client-generated CLI-side trace id for this request (§2.4). Emitted in telemetry now; sending it
+  // as a request header to Connect API -> DataKit is deferred until the backend defines that contract.
+  const correlationId = randomUUID();
   try {
     const resp = await conn.request<ComponentTypesResponse>(`${basePath(conn)}/component-types`);
     // No componentType arg for this fn, so the key is omitted from the payload entirely.
     void emitTelemetry('DATACLOUD_DEVOPS_API_REQUEST', {
+      correlationId,
       operation: 'componentTypes',
       success: true,
       resultCount: Object.keys(resp.supportedComponentTypes).length,
@@ -95,6 +101,7 @@ export async function getComponentTypes(conn: Connection): Promise<ComponentType
   } catch (err) {
     const mapped = toSfError(err, 'list component types');
     void emitTelemetry('DATACLOUD_DEVOPS_API_REQUEST', {
+      correlationId,
       operation: 'componentTypes',
       success: false,
       resultCount: 0,
@@ -106,19 +113,29 @@ export async function getComponentTypes(conn: Connection): Promise<ComponentType
 }
 
 /**
- * GET /ssot/devops/component/catalog?componentType=<>&dataSpaceName=<> — the components of a given
- * type within a dataspace (§5.4).
+ * GET /ssot/devops/component/catalog?componentType=<>[&dataSpaceName=<>] — the components of a given
+ * type, optionally scoped to a dataspace (§5.4). When no dataspace is given the param is omitted and
+ * the backend lists across the org's default dataspace context.
  */
 export async function getComponents(
   conn: Connection,
   componentType: string,
-  dataSpaceName: string
+  dataSpaceName?: string
 ): Promise<ComponentsResponse> {
   const startedAt = Date.now();
-  const qs = new URLSearchParams({ componentType, dataSpaceName }).toString();
+  // Client-generated CLI-side trace id for this request (§2.4). Emitted in telemetry now; sending it
+  // as a request header to Connect API -> DataKit is deferred until the backend defines that contract.
+  const correlationId = randomUUID();
+  // Omit dataSpaceName entirely when absent (never send `dataSpaceName=undefined`).
+  const params: Record<string, string> = { componentType };
+  if (dataSpaceName?.trim()) {
+    params.dataSpaceName = dataSpaceName;
+  }
+  const qs = new URLSearchParams(params).toString();
   try {
     const resp = await conn.request<ComponentsResponse>(`${basePath(conn)}/component/catalog?${qs}`);
     void emitTelemetry('DATACLOUD_DEVOPS_API_REQUEST', {
+      correlationId,
       operation: 'components',
       componentType: safeComponentType(componentType), // bounded TYPE only; never the dataspace/qs.
       success: true,
@@ -129,6 +146,7 @@ export async function getComponents(
   } catch (err) {
     const mapped = toSfError(err, `list components of type "${componentType}"`);
     void emitTelemetry('DATACLOUD_DEVOPS_API_REQUEST', {
+      correlationId,
       operation: 'components',
       componentType: safeComponentType(componentType),
       success: false,
@@ -141,19 +159,50 @@ export async function getComponents(
 }
 
 /**
- * GET /ssot/devops/component/snapshot?componentType=<>&componentName=<>&dataSpaceName=<> — a single
- * named component plus its server-spidered dependency graph, with per-component payloads (§5.5).
+ * GET /ssot/devops/component/snapshot?componentType=<>&componentName=<>[&dataSpaceName=<>] — a single
+ * named component plus its server-spidered dependency graph, with per-component payloads (§5.5). When
+ * no dataspace is given the param is omitted and the backend resolves the org's default dataspace.
  */
 export async function getSnapshot(
   conn: Connection,
   componentType: string,
   componentName: string,
-  dataSpaceName: string
+  dataSpaceName?: string
 ): Promise<RetrieveApiResponse> {
-  const qs = new URLSearchParams({ componentType, componentName, dataSpaceName }).toString();
+  // Omit dataSpaceName entirely when absent (never send `dataSpaceName=undefined`).
+  const params: Record<string, string> = { componentType, componentName };
+  if (dataSpaceName?.trim()) {
+    params.dataSpaceName = dataSpaceName;
+  }
+  const qs = new URLSearchParams(params).toString();
   try {
     return await conn.request<RetrieveApiResponse>(`${basePath(conn)}/component/snapshot?${qs}`);
   } catch (err) {
     throw toSfError(err, `retrieve snapshot for ${componentType}:${componentName}`);
+  }
+}
+
+/**
+ * POST /ssot/devops/component/promotion — submit a promotion (deploy) of the named component plus its transitive
+ * dependencies (§5.6). The deploy runs async; the synchronous body is a submission ack
+ * ({ status: 'SUBMITTED', jobId }). Like getSnapshot, this maps errors but emits no telemetry — the
+ * orchestration event (with its correlationId) is emitted by deploy-service.
+ *
+ * Contract (confirmed with backend): the body wraps a `components` array under a top-level object
+ * ({ components: [...] }) — each element the exact on-disk snapshot JSON with its payload under
+ * `entityPayload` and `dataspaceName` per-component (no top-level dataSpaceName). Mirrors
+ * CdpDevOpsComponentPayloadInputRepresentation (getEntityPayload / getDataspaceName), which the
+ * handler iterates over input.getComponents().
+ */
+export async function createPromotion(conn: Connection, request: DeployApiRequest): Promise<DeployApiResponse> {
+  try {
+    return await conn.request<DeployApiResponse>({
+      method: 'POST',
+      url: `${basePath(conn)}/component/promotion`,
+      body: JSON.stringify({ components: request }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    throw toSfError(err, 'deploy components');
   }
 }

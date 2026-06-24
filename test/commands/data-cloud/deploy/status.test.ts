@@ -98,6 +98,8 @@ describe('data-cloud deploy status', () => {
       expect(e.success).to.equal(true);
       expect(e.hadComponentError).to.equal(false);
       expect(e.usedJson).to.be.a('boolean');
+      expect(Object.keys(e)).to.not.include('errorCode'); // no errorCode on a successful poll
+      expect(Object.keys(e)).to.not.include('correlationId'); // mock path: no real request id
       assertAllSafe(telemetry);
     });
 
@@ -109,6 +111,10 @@ describe('data-cloud deploy status', () => {
       expect(e.isTerminal).to.equal(true);
       expect(e.success).to.equal(false);
       expect(e.hadComponentError).to.equal(true); // presence only
+      // Machine-parseable classification for agent/CI consumers — the code, never the name/message.
+      expect(e.errorCode).to.be.a('string');
+      expect(e.errorCode).to.equal('ComponentValidationError');
+      expect(Object.keys(e)).to.not.include('correlationId'); // mock path: no real request id
       // The mock's componentName ('HighValueCustomers') and error message must never ship.
       expect(JSON.stringify(e)).to.not.match(/HighValueCustomers|invalid syntax|line 4/);
       assertAllSafe(telemetry);

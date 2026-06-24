@@ -40,6 +40,17 @@ export const FOLDER_BY_TYPE: Record<string, string> = {
  */
 export const DATASPACE_AGNOSTIC_TYPES = new Set<string>(['DataLakeObject']);
 
+/**
+ * Whether a component is stored at the `data-cloud/` root (no dataspace folder) rather than under a
+ * `data-cloud/<dataspace>/` subdirectory (§5.2). True for dataspace-agnostic types (e.g.
+ * DataLakeObject) AND for any component whose dataspaceName is empty/null/undefined — generalizing
+ * the original DLO-only special case. Single source of truth for both the file-writer (retrieve →
+ * disk) and the file-reader (disk → deploy); keeping the rule here makes it trivial to reverse.
+ */
+export function isRootRouted(componentType: string, dataspaceName?: string | null): boolean {
+  return DATASPACE_AGNOSTIC_TYPES.has(componentType) || dataspaceName == null || dataspaceName.trim() === '';
+}
+
 /** Root directory all retrieve/deploy artifacts live under, relative to the chosen base directory. */
 export const ROOT_DIR = 'data-cloud';
 

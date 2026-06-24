@@ -63,6 +63,9 @@
           },
           "component": {
             "description": "List Data Cloud components of a given type within a dataspace."
+          },
+          "deploy": {
+            "description": "Deploy Data Cloud components to a target org."
           }
         }
       }

@@ -17,7 +17,7 @@
 import { DeployResult, DeployApiRequest } from '../types/deploy.js';
 
 /*
- * DUMMY DATA — Week 1 only. Simulates the synchronous response from POST /ssot/devops/deploy
+ * DUMMY DATA — Week 1 only. Simulates the synchronous response from POST /ssot/devops/component/promotion
  * (PROJECT_KNOWLEDGE.md §1.10, §5.6): the deploy is enqueued as a background job and the call
  * returns immediately with a tracking jobId in the CREATED state. The jobId mirrors the §5.6
  * example. No network call or org contact happens.

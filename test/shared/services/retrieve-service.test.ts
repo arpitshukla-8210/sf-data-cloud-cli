@@ -25,6 +25,7 @@ import {
   resetTelemetry,
   ourEvents,
   assertAllSafe,
+  UUID_RE,
   type TelemetryEvent,
 } from '../../shared/telemetry-test-utils.js';
 
@@ -79,6 +80,24 @@ describe('retrieve-service', () => {
     expect(existsSync(join(tmp, 'data-cloud', 'manifest.json'))).to.equal(true);
   });
 
+  it('routes every component to the data-cloud/ root when no dataspace is given', async () => {
+    // The mock keys dataspaceName off its argument; '' yields components with an empty dataspace,
+    // which the file-writer routes to the root (§5.2). The service is called with no dataspace arg.
+    const result = await retrieveComponents(fakeConn(''), 'CalculatedInsight:highValueCustomer', undefined, {
+      baseDir: tmp,
+    });
+
+    expect(result.dataspace).to.equal('');
+    expect(result.fileWriteLocation).to.equal('./data-cloud/');
+    expect(result.retrievedComponents.every((c) => c.dataspaceName === '')).to.equal(true);
+
+    // CI (a dataspace-scoped type) lands at the root since it carries no dataspace.
+    expect(existsSync(join(tmp, 'data-cloud', 'calculated-insights', 'highValueCustomer.json'))).to.equal(true);
+    // No dataspace subdirectory was created.
+    expect(existsSync(join(tmp, 'data-cloud', 'default'))).to.equal(false);
+    expect(existsSync(join(tmp, 'data-cloud', 'manifest.json'))).to.equal(true);
+  });
+
   it('echoes a non-default dataspace into the result and the write paths', async () => {
     const result = await retrieveComponents(
       fakeConn('analytics_ds'),
@@ -113,6 +132,7 @@ describe('retrieve-service', () => {
       const e = events[0];
       expect(e.eventName).to.equal('DATACLOUD_DEVOPS_RETRIEVE_COMPONENT');
       expect(e.surface).to.equal('cli');
+      expect(e.correlationId).to.match(UUID_RE); // CLI-side trace id for the retrieve operation
       expect(e.componentType).to.equal('CalculatedInsight'); // a TYPE, never the name
       expect(e.success).to.equal(true);
       expect(Number.isInteger(e.componentCount)).to.equal(true);
@@ -148,6 +168,7 @@ describe('retrieve-service', () => {
       const events = ourEvents(telemetry);
       expect(events).to.have.lengthOf(1);
       const e = events[0];
+      expect(e.correlationId).to.match(UUID_RE); // present even when the parse fails early
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('InvalidComponentFlagError');
       expect(e.componentType).to.equal('unknown'); // parse threw before a type was known

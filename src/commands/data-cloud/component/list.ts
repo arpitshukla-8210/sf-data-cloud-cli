@@ -46,7 +46,6 @@ export default class DataCloudComponentList extends SfCommand<ComponentListResul
     }),
     dataspace: Flags.string({
       summary: messages.getMessage('flags.dataspace.summary'),
-      required: true,
     }),
     'src-org': Flags.requiredOrg({
       summary: messages.getMessage('flags.src-org.summary'),
@@ -61,7 +60,7 @@ export default class DataCloudComponentList extends SfCommand<ComponentListResul
     const dataspace = flags.dataspace;
     const conn = flags['src-org'].getConnection(flags['api-version']);
 
-    // The server applies the type + dataspace filtering (§5.4).
+    // The server applies the type + dataspace filtering (§5.4); dataspace is omitted when not given.
     const { components } = await getComponents(conn, componentType, dataspace);
 
     // Human-readable output (auto-suppressed when --json is present).
@@ -69,7 +68,12 @@ export default class DataCloudComponentList extends SfCommand<ComponentListResul
       data: components,
       columns: [{ key: 'componentName', name: 'Component Name' }],
     });
-    this.log(messages.getMessage('info.found', [components.length, componentType, dataspace]));
+    // Drop the dataspace clause when none was provided (avoids "in dataspace 'undefined'").
+    this.log(
+      dataspace
+        ? messages.getMessage('info.found', [components.length, componentType, dataspace])
+        : messages.getMessage('info.foundNoDataspace', [components.length, componentType])
+    );
 
     // Returned object is what --json emits and what unit tests assert against.
     return { components };

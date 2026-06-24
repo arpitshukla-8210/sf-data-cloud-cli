@@ -60,6 +60,12 @@ describe('file-reader', () => {
       );
     });
 
+    it('routes a dataspace-scoped type with an empty dataspace to the root folder', () => {
+      expect(pathForComponent('CalculatedInsight', 'rootless', '', tmp)).to.equal(
+        join(tmp, 'data-cloud', 'calculated-insights', 'rootless.json')
+      );
+    });
+
     it('throws UnknownComponentTypeError for an unsupported type', () => {
       expect(() => pathForComponent('NotARealType', 'x', 'default', tmp)).to.throw(/Unknown component type/);
     });
@@ -107,6 +113,37 @@ describe('file-reader', () => {
       const result = await readComponentFile('DataTransform', 'myTransform', 'default', { baseDir: tmp });
       expect(result.entityPayload).to.equal('{ "label": "My Transform", "type": "BATCH" }');
       expect(result.entityPayload).to.be.a('string'); // NOT parsed into an object
+    });
+
+    it('reads a component with an empty dataspace from the root path', async () => {
+      const rootless: ComponentFile = {
+        componentType: 'CalculatedInsight',
+        componentName: 'rootless',
+        dataspaceName: '',
+        dependsOn: [],
+        entityPayload: { masterLabel: 'rootless' },
+      };
+      await writeFixture(tmp, rootless); // routed to data-cloud/calculated-insights/ (root)
+
+      const result = await readComponentFile('CalculatedInsight', 'rootless', '', { baseDir: tmp });
+      expect(result).to.deep.equal(rootless);
+    });
+
+    it('finds a root-stored component via root-first lookup even when a dataspace is passed', async () => {
+      // Physically stored at the root (empty dataspaceName) ...
+      const rootStored: ComponentFile = {
+        componentType: 'DataModelObject',
+        componentName: 'SharedDmo',
+        dataspaceName: '',
+        dependsOn: [],
+        entityPayload: { masterLabel: 'shared' },
+      };
+      await writeFixture(tmp, rootStored);
+
+      // ... but requested with a dataspace context. Root-first lookup still finds it.
+      const result = await readComponentFile('DataModelObject', 'SharedDmo', 'default', { baseDir: tmp });
+      expect(result.componentName).to.equal('SharedDmo');
+      expect(result.dataspaceName).to.equal('');
     });
 
     it('throws ComponentNotFoundError when the file does not exist', async () => {

@@ -6,7 +6,7 @@ Check the status of an asynchronous Data Cloud deployment job.
 
 Polls the tracking status of a specific background Data Cloud deployment job on the target org.
 
-This command currently returns dummy data and does not contact an org. Pass the job ID returned by "sf data-cloud deploy". A successful job reports SUCCEEDED; a failed job reports the failing component and the reason.
+The server status endpoint is not yet implemented, so this command returns dummy data and does not contact an org; it demonstrates the eventual poll experience. A successful job reports SUCCEEDED; a failed job reports the failing component and the reason.
 
 # flags.job-id.summary
 

@@ -11,7 +11,7 @@
         },
         "status": {
           "$ref": "#/definitions/DeploymentLifecycleStatus",
-          "description": "Initial job state from the synchronous deploy response — always 'CREATED' per contract (§5.6)."
+          "description": "Job state from the synchronous deploy response — 'SUBMITTED' on the live path (§5.6)."
         }
       },
       "required": ["jobId", "status"],
@@ -20,8 +20,8 @@
     },
     "DeploymentLifecycleStatus": {
       "type": "string",
-      "enum": ["CREATED", "INPROGRESS", "SUCCESS", "FAILED"],
-      "description": "Deploy job lifecycle states (§5.6): the synchronous response is always CREATED; the job then advances to INPROGRESS and finally SUCCESS or FAILED, polled via `sf data-cloud deploy status`."
+      "enum": ["SUBMITTED", "CREATED", "INPROGRESS", "SUCCESS", "FAILED"],
+      "description": "Deploy job lifecycle states. The live synchronous response is 'SUBMITTED'; the job then advances to INPROGRESS and finally SUCCESS or FAILED, intended to be polled via `sf data-cloud deploy status` once that endpoint exists. 'CREATED' is retained for the offline mock and the documented §5.6 example."
     }
   }
 }

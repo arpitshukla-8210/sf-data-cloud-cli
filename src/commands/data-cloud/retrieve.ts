@@ -42,7 +42,6 @@ export default class DataCloudRetrieve extends SfCommand<RetrieveResult> {
     }),
     dataspace: Flags.string({
       summary: messages.getMessage('flags.dataspace.summary'),
-      required: true,
     }),
     'src-org': Flags.requiredOrg({
       summary: messages.getMessage('flags.src-org.summary'),
