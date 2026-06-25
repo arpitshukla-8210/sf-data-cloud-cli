@@ -27,8 +27,8 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
  * Maps to POST /ssot/devops/component/promotion (PROJECT_KNOWLEDGE.md §1.7, §1.10, §5.6).
  * Resolves --target-org to an authenticated connection and delegates to the deploy service, which
  * reads the named component plus its transitive dependencies from the local data-cloud/ tree and
- * submits them for an async deploy. The live backend returns only a submission status
- * ('SUBMITTED') with no jobId; detailed per-job status tracking is not yet available server-side.
+ * submits them for an async deploy. The live backend returns a submission status ('SUBMITTED') plus
+ * a tracking jobId, which the user polls via `data-cloud deploy status`.
  * Stays thin — all sourcing + HTTP lives in shared/services.
  */
 export default class DataCloudDeploy extends SfCommand<DeployResult> {
@@ -64,7 +64,7 @@ export default class DataCloudDeploy extends SfCommand<DeployResult> {
     this.log(messages.getMessage('info.status', [result.status]));
     this.log(messages.getMessage('info.jobId', [result.jobId]));
     this.log('');
-    this.log(messages.getMessage('info.statusNote'));
+    this.log(messages.getMessage('info.statusNote', [result.jobId]));
 
     // Returned object is what --json emits and what unit tests assert against.
     return result;

@@ -6,7 +6,7 @@ Deploy a Data Cloud component and its dependencies to a target org.
 
 Starts an asynchronous deployment of a Data Cloud component and its dependencies to the target org.
 
-The command reads the component plus its transitive dependencies from the local data-cloud/ tree and submits them to the org. The deploy runs in the background; the call returns immediately with a submission status of SUBMITTED. Detailed per-job status tracking is not yet available.
+The command reads the component plus its transitive dependencies from the local data-cloud/ tree and submits them to the org. The deploy runs in the background; the call returns immediately with a submission status of SUBMITTED and a tracking job ID. Poll that job ID with `data-cloud deploy status` to follow its progress.
 
 # flags.component.summary
 
@@ -40,4 +40,4 @@ Status: %s
 
 # info.statusNote
 
-Status tracking for this deployment is not yet available.
+Track progress with: <%= config.bin %> data-cloud deploy status --job-id %s --target-org <org>

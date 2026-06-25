@@ -12,32 +12,47 @@
           "$ref": "#/definitions/DeploymentLifecycleStatus"
         },
         "components": {
-          "$ref": "#/definitions/FailedComponentDetail",
-          "description": "Populated only when top-level status is FAILED to isolate the breaking element."
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DeployStatusComponent"
+          },
+          "description": "Per-component status; empty when the job is CREATED (queued, no component rows written yet)."
         }
       },
-      "required": ["jobId", "status"],
+      "required": ["jobId", "status", "components"],
       "additionalProperties": false,
-      "description": "Structural representation matching the GET /ssot/devops/deploy/{jobId}/status contract."
+      "description": "Shape returned by `sf data-cloud deploy status` (and what `--json` emits)."
     },
     "DeploymentLifecycleStatus": {
       "type": "string",
       "enum": ["SUBMITTED", "CREATED", "INPROGRESS", "SUCCESS", "FAILED"],
       "description": "Deploy job lifecycle states. The live synchronous response is 'SUBMITTED'; the job then advances to INPROGRESS and finally SUCCESS or FAILED, intended to be polled via `sf data-cloud deploy status` once that endpoint exists. 'CREATED' is retained for the offline mock and the documented §5.6 example."
     },
-    "FailedComponentDetail": {
+    "DeployStatusComponent": {
       "type": "object",
       "properties": {
         "componentName": {
           "type": "string"
         },
-        "error": {
+        "componentType": {
           "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ComponentStatus"
+        },
+        "error": {
+          "type": "string",
+          "description": "Populated only when this component FAILED, to isolate the breaking element."
         }
       },
-      "required": ["componentName", "error"],
+      "required": ["componentName", "componentType", "status"],
       "additionalProperties": false,
-      "description": "The single failing component isolated on a FAILED job (§5.7). Structured + actionable (component + reason) per the AI-era error principle — never a raw gack or \"contact support\"."
+      "description": "A component's status in the normalized result (§5.7). Structured + actionable (type + status + optional reason) per the AI-era error principle — never a raw gack or \"contact support\"."
+    },
+    "ComponentStatus": {
+      "type": "string",
+      "enum": ["SUCCESS", "FAILED", "INPROGRESS"],
+      "description": "Per-component status, CLI-normalized to UPPERCASE. The backend's CdpDevOpsComponentStatusEnum is Success | Failed | InProgress (the enum also defines Pending, but the backend rollup never emits it — STARTED/null roll up to InProgress); the service folds Pending and any unknown into INPROGRESS."
     }
   }
 }

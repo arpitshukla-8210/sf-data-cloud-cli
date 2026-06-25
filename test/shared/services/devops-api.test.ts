@@ -20,6 +20,7 @@ import {
   getComponents,
   getSnapshot,
   createPromotion,
+  getPromotionStatus,
 } from '../../../src/shared/services/devops-api.js';
 import { DeployApiRequest } from '../../../src/shared/types/deploy.js';
 import {
@@ -124,7 +125,9 @@ describe('devops-api', () => {
       expect(req.url).to.equal('/services/data/v62.0/ssot/devops/component/promotion');
       expect(req.body).to.equal(JSON.stringify({ components: sampleRequest }));
       // The serialized body wraps the components array in a top-level `components` object.
-      expect(req.body).to.be.a('string').and.to.match(/^\{"components":\[/);
+      expect(req.body)
+        .to.be.a('string')
+        .and.to.match(/^\{"components":\[/);
     });
 
     it('returns the parsed submission ack verbatim ({ status: "SUBMITTED", jobId })', async () => {
@@ -181,6 +184,63 @@ describe('devops-api', () => {
       try {
         const { conn } = makeConn({ response: { status: 'SUBMITTED' } });
         await createPromotion(conn, sampleRequest);
+        expect(ourEvents(telemetry)).to.have.lengthOf(0);
+      } finally {
+        resetTelemetry();
+      }
+    });
+  });
+
+  describe('getPromotionStatus (deploy status GET)', () => {
+    const sampleResponse = {
+      jobId: '08PVF000002iQIb',
+      status: 'InProgress',
+      components: [{ componentName: 'MyCi', componentType: 'CalculatedInsight', status: 'InProgress' }],
+    };
+
+    it('GETs the versioned promotion-status path with the jobId as a path segment', async () => {
+      const { conn, calls } = makeConn({ response: sampleResponse });
+      await getPromotionStatus(conn, '08PVF000002iQIb');
+      expect(calls[0]).to.equal('/services/data/v62.0/ssot/devops/component/promotion/08PVF000002iQIb');
+    });
+
+    it('URL-encodes a jobId containing a space and a slash', async () => {
+      const { conn, calls } = makeConn({ response: sampleResponse });
+      await getPromotionStatus(conn, 'weird id/2');
+      expect(calls[0]).to.equal('/services/data/v62.0/ssot/devops/component/promotion/weird%20id%2F2');
+    });
+
+    it('returns the parsed response body verbatim (PascalCase enums untouched at this boundary)', async () => {
+      const { conn } = makeConn({ response: sampleResponse });
+      expect(await getPromotionStatus(conn, '08PVF000002iQIb')).to.deep.equal(sampleResponse);
+    });
+
+    it('maps a 404 to an actionable not-found error', async () => {
+      const { conn } = makeConn({ reject: { name: 'NOT_FOUND', message: 'no such job' } });
+      try {
+        await getPromotionStatus(conn, '08PVF000002iQIb');
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiNotFoundError');
+      }
+    });
+
+    it('maps an invalid session to an actionable auth error', async () => {
+      const { conn } = makeConn({ reject: { errorCode: 'INVALID_SESSION_ID', message: 'Session expired' } });
+      try {
+        await getPromotionStatus(conn, '08PVF000002iQIb');
+        expect.fail('expected an SfError');
+      } catch (err) {
+        expect((err as SfError).name).to.equal('DataCloudApiAuthError');
+      }
+    });
+
+    it('does NOT emit telemetry (the poll event is emitted by deploy-status-service)', async () => {
+      const telemetry: TelemetryEvent[] = [];
+      captureTelemetry(telemetry);
+      try {
+        const { conn } = makeConn({ response: sampleResponse });
+        await getPromotionStatus(conn, '08PVF000002iQIb');
         expect(ourEvents(telemetry)).to.have.lengthOf(0);
       } finally {
         resetTelemetry();

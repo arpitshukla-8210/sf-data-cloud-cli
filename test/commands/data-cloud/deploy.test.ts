@@ -75,7 +75,9 @@ describe('data-cloud deploy', () => {
     expect(output).to.include('Deployment submitted for CalculatedInsight:highValueCustomer in dataspace default');
     expect(output).to.include('Status: SUBMITTED');
     expect(output).to.include('Job ID: 08PVF000002iQIb');
-    expect(output).to.include('Status tracking for this deployment is not yet available.');
+    // Points the user at the now-live status command, threading the tracking jobId through.
+    expect(output).to.include('Track progress with:');
+    expect(output).to.include('data-cloud deploy status --job-id 08PVF000002iQIb');
   });
 
   it('fails if the required target-org flag is missing and no default org is configured', async () => {

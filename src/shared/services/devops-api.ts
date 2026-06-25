@@ -20,6 +20,7 @@ import { ComponentTypesResponse } from '../types/component-type.js';
 import { ComponentsResponse } from '../types/component.js';
 import { RetrieveApiResponse } from '../types/retrieve.js';
 import { DeployApiRequest, DeployApiResponse } from '../types/deploy.js';
+import { DeployStatusApiResponse } from '../types/deploy-status.js';
 import { emitTelemetry, safeComponentType } from './telemetry.js';
 
 /*
@@ -204,5 +205,22 @@ export async function createPromotion(conn: Connection, request: DeployApiReques
     });
   } catch (err) {
     throw toSfError(err, 'deploy components');
+  }
+}
+
+/**
+ * GET /ssot/devops/component/promotion/{jobId} — poll an async promotion (deploy) job's status (§5.7).
+ * Returns the overall job status plus a per-component status array. Like getSnapshot, this maps errors
+ * via toSfError but emits no telemetry — the DEPLOY_STATUS_POLL event (with its correlationId) is
+ * emitted by deploy-status-service. The jobId is URL-encoded as a defensive measure (it is a path
+ * segment); valid 15/18-char Salesforce IDs pass through unchanged.
+ */
+export async function getPromotionStatus(conn: Connection, jobId: string): Promise<DeployStatusApiResponse> {
+  try {
+    return await conn.request<DeployStatusApiResponse>(
+      `${basePath(conn)}/component/promotion/${encodeURIComponent(jobId)}`
+    );
+  } catch (err) {
+    throw toSfError(err, `check deploy status for job "${jobId}"`);
   }
 }
