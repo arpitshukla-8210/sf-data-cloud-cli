@@ -26,9 +26,9 @@
   {
     "alias": [],
     "command": "data-cloud:deploy:status",
-    "flagAliases": ["i", "o"],
-    "flagChars": [],
-    "flags": ["flags-dir", "job-id", "json", "target-org"],
+    "flagAliases": ["i"],
+    "flagChars": ["o"],
+    "flags": ["api-version", "flags-dir", "job-id", "json", "target-org"],
     "plugin": "@salesforce/plugin-datacloud-devops"
   },
   {

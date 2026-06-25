@@ -4,9 +4,9 @@ Check the status of an asynchronous Data Cloud deployment job.
 
 # description
 
-Polls the tracking status of a specific background Data Cloud deployment job on the target org.
+Polls the status of an asynchronous Data Cloud deployment job on the target org.
 
-The server status endpoint is not yet implemented, so this command returns dummy data and does not contact an org; it demonstrates the eventual poll experience. A successful job reports SUCCEEDED; a failed job reports the failing component and the reason.
+The command reports the overall job status and a per-component breakdown. A completed job reports SUCCEEDED; an in-progress job reports INPROGRESS; a failed job reports each failing component and the reason it failed.
 
 # flags.job-id.summary
 
