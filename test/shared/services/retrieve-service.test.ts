@@ -34,9 +34,11 @@ import {
  * exercised end-to-end (parse flag -> devops-api.getSnapshot -> file-writer) without a real org; the
  * mock is keyed on the requested dataspace so non-default cases still echo correctly.
  */
-const fakeConn = (dataspace: string): Connection =>
+const fakeConn = (dataspace: string, orgId?: string): Connection =>
   ({
     getApiVersion: () => '62.0',
+    // Mirrors the real accessor safeOrgId reads; orgId is undefined unless a test supplies one.
+    getAuthInfoFields: () => ({ orgId }),
     request: () => Promise.resolve(getMockRetrieveApiResponse(dataspace)),
   } as unknown as Connection);
 
@@ -125,7 +127,12 @@ describe('retrieve-service', () => {
 
   describe('telemetry', () => {
     it('emits exactly one safe RETRIEVE_COMPONENT success event with graph size and duration', async () => {
-      await retrieveComponents(fakeConn('default'), 'CalculatedInsight:highValueCustomer', 'default', { baseDir: tmp });
+      await retrieveComponents(
+        fakeConn('default', '00DXX0000000000AAA'),
+        'CalculatedInsight:highValueCustomer',
+        'default',
+        { baseDir: tmp }
+      );
 
       const events = ourEvents(telemetry);
       expect(events).to.have.lengthOf(1);
@@ -133,6 +140,7 @@ describe('retrieve-service', () => {
       expect(e.eventName).to.equal('DATACLOUD_DEVOPS_RETRIEVE_COMPONENT');
       expect(e.surface).to.equal('cli');
       expect(e.correlationId).to.match(UUID_RE); // CLI-side trace id for the retrieve operation
+      expect(e.orgId).to.equal('00DXX0000000000AAA'); // customer-org correlation
       expect(e.componentType).to.equal('CalculatedInsight'); // a TYPE, never the name
       expect(e.success).to.equal(true);
       expect(Number.isInteger(e.componentCount)).to.equal(true);
@@ -157,9 +165,11 @@ describe('retrieve-service', () => {
       assertAllSafe(telemetry);
     });
 
-    it('emits a single failure event with errorCode (never the message) and re-throws unchanged', async () => {
+    it('emits a single failure event with errorCode + errorMessage (never under `message`) and re-throws unchanged', async () => {
       try {
-        await retrieveComponents(fakeConn('default'), 'highValueCustomer', 'default', { baseDir: tmp });
+        await retrieveComponents(fakeConn('default', '00DXX0000000000AAA'), 'highValueCustomer', 'default', {
+          baseDir: tmp,
+        });
         expect.fail('expected a throw for the malformed flag');
       } catch (err) {
         expect((err as Error).name).to.equal('InvalidComponentFlagError'); // original error preserved
@@ -169,10 +179,14 @@ describe('retrieve-service', () => {
       expect(events).to.have.lengthOf(1);
       const e = events[0];
       expect(e.correlationId).to.match(UUID_RE); // present even when the parse fails early
+      expect(e.orgId).to.equal('00DXX0000000000AAA'); // customer-org correlation, even on the error path
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('InvalidComponentFlagError');
       expect(e.componentType).to.equal('unknown'); // parse threw before a type was known
+      // The full error text rides under `errorMessage`; the raw key `message` is never used.
       expect(Object.keys(e)).to.not.include('message');
+      expect(e.errorMessage).to.be.a('string').and.to.include('Expected TYPE:NAME');
+      expect(Object.keys(e)).to.not.include('gackId'); // extraction disabled
       assertAllSafe(telemetry);
     });
 

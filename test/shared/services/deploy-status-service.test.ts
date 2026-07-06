@@ -38,9 +38,11 @@ const JOB_ID = '08PVF000002iQIb';
  * rejects with `reject` to exercise the API-error path. The service never inspects the connection
  * beyond handing it to getPromotionStatus, so a minimal stub suffices.
  */
-const fakeConn = (opts: { response?: DeployStatusApiResponse; reject?: unknown }): Connection =>
+const fakeConn = (opts: { response?: DeployStatusApiResponse; reject?: unknown; orgId?: string }): Connection =>
   ({
     getApiVersion: () => '62.0',
+    // Mirrors the real accessor safeOrgId reads; omitted (undefined) unless a test supplies an orgId.
+    getAuthInfoFields: () => ({ orgId: opts.orgId }),
     request: () => (opts.reject ? Promise.reject(opts.reject) : Promise.resolve(opts.response)),
   } as unknown as Connection);
 
@@ -164,6 +166,7 @@ describe('deploy-status-service', () => {
       expect(e.correlationId).to.match(UUID_RE);
       expect(e.lifecycleStatus).to.equal('SUCCESS');
       expect(e.isTerminal).to.equal(true);
+      // `success` is the business outcome — the deploy job reached terminal SUCCESS.
       expect(e.success).to.equal(true);
       expect(e.componentCount).to.equal(1);
       expect(e.hadComponentError).to.equal(false);
@@ -172,7 +175,7 @@ describe('deploy-status-service', () => {
       assertAllSafe(telemetry);
     });
 
-    it('emits errorCode=ComponentValidationError on a FAILED job with a failed component, leaking nothing', async () => {
+    it('emits errorCode=ComponentValidationError on a FAILED job with a failed component; the poll event leaks nothing', async () => {
       const conn = fakeConn({
         response: {
           jobId: JOB_ID,
@@ -184,14 +187,72 @@ describe('deploy-status-service', () => {
       });
       await checkDeployStatus(conn, JOB_ID);
 
-      const e = ourEvents(telemetry)[0];
-      expect(e.lifecycleStatus).to.equal('FAILED');
-      expect(e.success).to.equal(false);
-      expect(e.hadComponentError).to.equal(true);
-      expect(e.errorCode).to.equal('ComponentValidationError');
-      // No component name or error message may ship.
-      expect(JSON.stringify(e)).to.not.match(/MyCi|bad expression/);
+      // The poll event is emitted first; per-component failure sub-events follow.
+      const poll = ourEvents(telemetry).find((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL')!;
+      expect(poll.lifecycleStatus).to.equal('FAILED');
+      // The deploy job failed, so the business-outcome `success` is false.
+      expect(poll.success).to.equal(false);
+      expect(poll.hadComponentError).to.equal(true);
+      expect(poll.errorCode).to.equal('ComponentValidationError');
+      // The bounded poll event still ships no component name or error message.
+      expect(JSON.stringify(poll)).to.not.match(/MyCi|bad expression/);
       assertAllSafe(telemetry);
+    });
+
+    it('emits one DEPLOY_COMPONENT_FAILURE sub-event per failed component, sharing the poll correlationId', async () => {
+      const conn = fakeConn({
+        response: {
+          jobId: JOB_ID,
+          status: 'Failed',
+          components: [
+            { componentName: 'MyCi', componentType: 'CalculatedInsight', status: 'Failed', error: 'bad expression' },
+            { componentName: 'MyDmo', componentType: 'DataModelObject', status: 'Success' },
+            { componentName: 'MyDt', componentType: 'DataTransform', status: 'Failed', error: 'missing field' },
+          ],
+        },
+      });
+      await checkDeployStatus(conn, JOB_ID);
+
+      const events = ourEvents(telemetry);
+      const poll = events.find((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL')!;
+      const failures = events.filter((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE');
+
+      // Only the two FAILED components produce sub-events (the SUCCESS one does not).
+      expect(failures).to.have.lengthOf(2);
+      const first = failures[0];
+      expect(first.surface).to.equal('cli');
+      expect(first.correlationId).to.equal(poll.correlationId); // joins to the poll event
+      expect(first.componentType).to.equal('CalculatedInsight');
+      expect(first.componentName).to.equal('MyCi'); // ALLOWED on this sub-event only
+      expect(first.errorMessage).to.equal('bad expression');
+      expect(first.failedIndex).to.equal(0);
+      expect(first.failedCount).to.equal(2);
+      expect(Object.keys(first)).to.not.include('gackId'); // extraction disabled
+
+      const second = failures[1];
+      expect(second.componentName).to.equal('MyDt');
+      expect(second.errorMessage).to.equal('missing field');
+      expect(second.failedIndex).to.equal(1);
+      expect(second.failedCount).to.equal(2);
+
+      // assertAllSafe still enforces the bound on every OTHER event (and other keys on this one).
+      assertAllSafe(telemetry);
+    });
+
+    it('emits no failure sub-event when a FAILED job has no failed component (job-level failure)', async () => {
+      const conn = fakeConn({
+        response: {
+          jobId: JOB_ID,
+          status: 'Failed',
+          components: [{ componentName: 'MyCi', componentType: 'CalculatedInsight', status: 'Success' }],
+        },
+      });
+      await checkDeployStatus(conn, JOB_ID);
+
+      const failures = ourEvents(telemetry).filter(
+        (ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE'
+      );
+      expect(failures).to.have.lengthOf(0);
     });
 
     it('emits errorCode=DeployJobFailed on a FAILED job with no failed component', async () => {
@@ -225,9 +286,41 @@ describe('deploy-status-service', () => {
       expect(e.correlationId).to.match(UUID_RE);
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('DataCloudApiAuthError');
+      // errorMessage now carries the mapped (not raw) text; the raw 'Session expired' never appears,
+      // and the key is `errorMessage`, never `message`.
       expect(Object.keys(e)).to.not.include('message');
+      expect(e.errorMessage).to.be.a('string').and.to.include('session is invalid or expired');
       expect(JSON.stringify(e)).to.not.match(/Session expired/);
+      expect(Object.keys(e)).to.not.include('gackId'); // extraction disabled
       assertAllSafe(telemetry);
+    });
+
+    it('attaches orgId to the poll and failure sub-events when the connection exposes one', async () => {
+      const conn = fakeConn({
+        orgId: '00DXX0000000000AAA',
+        response: {
+          jobId: JOB_ID,
+          status: 'Failed',
+          components: [
+            { componentName: 'MyCi', componentType: 'CalculatedInsight', status: 'Failed', error: 'bad expression' },
+          ],
+        },
+      });
+      await checkDeployStatus(conn, JOB_ID);
+
+      const events = ourEvents(telemetry);
+      const poll = events.find((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL')!;
+      const failure = events.find((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE')!;
+      expect(poll.orgId).to.equal('00DXX0000000000AAA');
+      expect(failure.orgId).to.equal('00DXX0000000000AAA');
+      assertAllSafe(telemetry);
+    });
+
+    it('omits orgId when the connection has no org id (optional-field rule)', async () => {
+      const conn = fakeConn({ response: { jobId: JOB_ID, status: 'Success', components: [] } });
+      await checkDeployStatus(conn, JOB_ID);
+      const e = ourEvents(telemetry)[0];
+      expect(Object.keys(e)).to.not.include('orgId');
     });
 
     it('never lets a throwing telemetry listener break the poll', async () => {

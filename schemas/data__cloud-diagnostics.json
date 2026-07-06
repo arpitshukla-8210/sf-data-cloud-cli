@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/DiagnosticsResult",
+  "definitions": {
+    "DiagnosticsResult": {
+      "type": "object",
+      "properties": {
+        "outputPath": {
+          "type": "string",
+          "description": "Absolute path of the `.tar.gz` written."
+        },
+        "fileCount": {
+          "type": "number",
+          "description": "Number of log files included in the bundle."
+        },
+        "totalBytes": {
+          "type": "number",
+          "description": "Total uncompressed bytes of the included log files."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the read cap was hit and the bundle is a bounded subset (surfaced to the user)."
+        },
+        "includedEnvironment": {
+          "type": "boolean",
+          "description": "Whether allowlisted environment info was included."
+        }
+      },
+      "required": ["outputPath", "fileCount", "totalBytes", "truncated", "includedEnvironment"],
+      "additionalProperties": false,
+      "description": "Shape returned by `sf data-cloud diagnostics` (and what `--json` emits)."
+    }
+  }
+}

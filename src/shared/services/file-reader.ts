@@ -15,10 +15,19 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { ComponentFile } from '../types/file-layout.js';
 import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR } from '../constants/component-paths.js';
+import { getDiagLogger } from '../diagnostics/logger.js';
+import { Subsystem } from '../diagnostics/event.js';
+
+/*
+ * The local diagnostic `extra` keys below use snake_case by design — the on-disk NDJSON row schema
+ * (event.ts) is a stable log-ingest contract whose field names match the remote telemetry fields, so
+ * a support engineer can grep the local log with the same names they see in App Insights.
+ */
+/* eslint-disable camelcase */
 
 /*
  * Pure file-reading engine for `sf data-cloud deploy` (PROJECT_KNOWLEDGE.md §5.2, §6.1). The inverse
@@ -96,6 +105,10 @@ export async function readComponentFile(
   const candidates = candidatePaths(componentType, componentName, dataspaceName, options.baseDir);
   const canonicalPath = candidates[candidates.length - 1];
 
+  // Local diagnostic channel (passive observer). File-IO events correlate by pid within the single
+  // CLI process; the orchestrator's begin() already bound this process's command/correlationId.
+  const diag = getDiagLogger();
+
   let raw: string | undefined;
   let filePath: string | undefined;
   for (const candidate of candidates) {
@@ -113,11 +126,22 @@ export async function readComponentFile(
   }
 
   if (raw === undefined || filePath === undefined) {
+    diag.error(Subsystem.FILEIO, 'FILE_READ_ERR', 'component file not found', {
+      component_type: componentType,
+      relative_path: relative(options.baseDir, canonicalPath),
+    });
     throw new SfError(
       `Component "${componentType}:${componentName}" not found at expected path: ${canonicalPath}. ` +
         'Run "sf data-cloud retrieve" first.',
       'ComponentNotFoundError'
     );
+  }
+  if (diag.traceEnabled(Subsystem.FILEIO)) {
+    diag.trace(Subsystem.FILEIO, 'FILE_READ', 'read component file', {
+      component_type: componentType,
+      component_name: componentName,
+      relative_path: relative(options.baseDir, filePath),
+    });
   }
 
   let parsed: unknown;
@@ -159,8 +183,17 @@ export async function collectTransitiveDependencies(
   const visited = new Set<string>();
   const collected: ComponentFile[] = [];
 
+  const diag = getDiagLogger();
+
   const visit = async (component: ComponentFile): Promise<void> => {
     collected.push(component);
+    if (diag.traceEnabled(Subsystem.FILEIO)) {
+      diag.trace(Subsystem.FILEIO, 'DEP_WALK_VISIT', 'visiting component', {
+        component_type: component.componentType,
+        component_name: component.componentName,
+        depends_on_count: component.dependsOn.length,
+      });
+    }
     await Promise.all(
       component.dependsOn.map(async (dep) => {
         const depKey = `${dep.componentType}:${dep.componentName}`;

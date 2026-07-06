@@ -15,11 +15,20 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { RawRetrievedComponent } from '../types/retrieve.js';
 import { ComponentFile, Manifest, ManifestEntry } from '../types/file-layout.js';
 import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
+import { getDiagLogger } from '../diagnostics/logger.js';
+import { Subsystem } from '../diagnostics/event.js';
+
+/*
+ * The local diagnostic `extra` keys below use snake_case by design — the on-disk NDJSON row schema
+ * (event.ts) is a stable log-ingest contract whose field names match the remote telemetry fields, so
+ * a support engineer can grep the local log with the same names they see in App Insights.
+ */
+/* eslint-disable camelcase */
 
 /*
  * Pure file-writing engine for `sf data-cloud retrieve` (PROJECT_KNOWLEDGE.md §5.1, §5.2, §5.8).
@@ -102,6 +111,17 @@ export async function writeRetrievedComponents(
     dataspaceName: component.dataspaceName ?? '',
   }));
   const manifestPath = join(options.baseDir, ROOT_DIR, MANIFEST_FILE);
+
+  // Local diagnostic channel (passive observer). One gated TRACE per planned file — home-scrubbed,
+  // baseDir-relative paths only, and the `extra` bag is built solely when TRACE is active for FILEIO.
+  const diag = getDiagLogger();
+  if (diag.traceEnabled(Subsystem.FILEIO)) {
+    for (const file of plannedFiles) {
+      diag.trace(Subsystem.FILEIO, 'FILE_WRITE', 'writing component file', {
+        relative_path: relative(options.baseDir, file.path),
+      });
+    }
+  }
 
   // Component files first (mkdir(recursive) tolerates the shared dirs), then the manifest.
   await Promise.all(plannedFiles.map((file) => writeJsonFile(file.path, file.content)));

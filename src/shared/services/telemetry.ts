@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { Lifecycle } from '@salesforce/core';
+import { Connection, Lifecycle } from '@salesforce/core';
 import { FOLDER_BY_TYPE } from '../constants/component-paths.js';
 
 /*
@@ -45,12 +45,60 @@ export function safeComponentType(componentType: string): string {
 }
 
 /**
+ * The Salesforce org ID (00D…) for the connection, used to correlate a telemetry event to a
+ * customer org (§2.4). Synchronous, but guarded: `getAuthInfoFields()` can throw or return no orgId
+ * on a connection with incomplete auth info, so callers spread the result conditionally
+ * (`...(orgId && { orgId })`) — a missing id is omitted rather than emitted as a placeholder. An org
+ * ID is a non-PII org identifier, so it trips none of the privacy guards in telemetry-test-utils.
+ */
+export function safeOrgId(conn: Connection): string | undefined {
+  try {
+    return conn.getAuthInfoFields().orgId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The full error text for the error-path `errorMessage` field. Unlike every other telemetry value
+ * this is intentionally NOT bounded: a Jun 2026 team decision allows the raw mapped SfError message
+ * on failure events for production debugging, accepting that it may contain backend/customer detail
+ * (correlated by orgId). Only error paths attach it; success events stay free of free text.
+ */
+export function errorMessageFrom(err: unknown): string | undefined {
+  if (err instanceof Error) return err.message;
+  return typeof err === 'string' ? err : undefined;
+}
+
+/*
+ * Salesforce "gack" id extraction. A gack is a server-side exception with a unique id (canonical
+ * shape ~ NNNNNNNNN-NNNNNN). There is no dedicated gack field on the API error response, so the id —
+ * if present at all — would be embedded in the message string. It is UNVERIFIED whether the
+ * /ssot/devops/* endpoints surface a gack id in their error bodies, so extraction ships DISABLED:
+ * the flag stays false until a real gack-bearing error confirms the marker/format with the backend,
+ * which keeps false-positive ids out of telemetry. The regex is a starting guess, not a contract.
+ */
+// `: boolean` (not the literal `false`) so the guard below is a real runtime check, not narrowed to
+// dead code that the no-unnecessary-condition lint rule would reject. Flip to true to enable.
+const GACK_EXTRACTION_ENABLED: boolean = false;
+const GACK_ID_RE = /\b\d{6,}-\d{3,}\b/;
+
+/** Extracts a gack id from an error message, or undefined while extraction is disabled/unmatched. */
+export function extractGackId(message: string | undefined): string | undefined {
+  if (!GACK_EXTRACTION_ENABLED || !message) return undefined;
+  return GACK_ID_RE.exec(message)?.[0];
+}
+
+/**
  * Emit one structured telemetry event. Fire-and-forget by design: callers MUST use `void` — this
  * function swallows its own failures and never rejects, so it cannot affect the caller's outcome.
  *
  * @param eventName - full event name, already in DATACLOUD_DEVOPS_<VERB>_<NOUN> form.
  * @param attributes - flat map of SAFE primitives only (counts, durationMs, booleans, type names,
- * structured error codes, lifecycle states). NEVER pass component names, paths, or error messages.
+ * structured error codes, lifecycle states). Two deliberate exceptions (Jun 2026 decision): an
+ * `errorMessage` on error-path events, and `componentName`/error reason on the
+ * DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE sub-event. Everything else stays bounded — never pass
+ * component names, paths, or dataspace names on any other event.
  */
 export async function emitTelemetry(eventName: string, attributes: TelemetryAttributes): Promise<void> {
   try {

@@ -73,13 +73,31 @@ const FORBIDDEN_KEYS = [
 const UNSAFE_VALUE =
   /highValueCustomer|Divvy_Trips|myTransform|myDLO|AccountDmo|HighValueCustomers|analytics_ds|invalid syntax|Session expired|ENOTFOUND|[\\/]|@/;
 
+/*
+ * Deliberate privacy relaxation (Jun 2026 team decision). Two narrowly-scoped exceptions to the
+ * value scan, for production debugging — every OTHER key/event stays fully bounded:
+ *   - `errorMessage` (error-path events): the raw mapped SfError text, which may contain backend
+ *     detail; allowed as a value but the value is not scanned for UNSAFE_VALUE.
+ *   - The DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE sub-event may carry the customer's OWN failing
+ *     `componentName` (normally forbidden) and an unbounded `componentType`/`errorMessage`.
+ */
+const FREE_TEXT_KEYS = new Set(['errorMessage']);
+const COMPONENT_FAILURE_EVENT = 'DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE';
+const COMPONENT_FAILURE_FREE_TEXT_KEYS = new Set(['componentName', 'componentType', 'errorMessage']);
+
 /** Asserts a single telemetry event carries no unsafe key and no unsafe string value. */
 export function assertNoUnsafeFields(event: TelemetryEvent): void {
-  for (const key of FORBIDDEN_KEYS) {
+  const isComponentFailure = event.eventName === COMPONENT_FAILURE_EVENT;
+  // The failure sub-event is the one place componentName is allowed; every other key stays forbidden.
+  const forbiddenKeys = isComponentFailure ? FORBIDDEN_KEYS.filter((k) => k !== 'componentName') : FORBIDDEN_KEYS;
+  // Keys whose value is intentionally free text on this event, so excluded from the UNSAFE_VALUE scan.
+  const freeTextKeys = isComponentFailure ? COMPONENT_FAILURE_FREE_TEXT_KEYS : FREE_TEXT_KEYS;
+
+  for (const key of forbiddenKeys) {
     expect(Object.keys(event), `payload must not contain key "${key}"`).to.not.include(key);
   }
-  for (const value of Object.values(event)) {
-    if (typeof value === 'string') {
+  for (const [key, value] of Object.entries(event)) {
+    if (typeof value === 'string' && !freeTextKeys.has(key)) {
       expect(value, `string value "${value}" looks like unsafe (PII/customer) data`).to.not.match(UNSAFE_VALUE);
     }
   }
