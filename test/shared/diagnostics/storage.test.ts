@@ -37,7 +37,7 @@ describe('diagnostics/storage', () => {
 
     it('macOS → ~/Library/Logs/<app>', () => {
       const dir = resolveLogDir({ platform: 'darwin', home: '/Users/x' });
-      expect(dir).to.equal('/Users/x/Library/Logs/salesforce-datacloud-devops');
+      expect(dir).to.equal(join('/Users/x', 'Library', 'Logs', 'salesforce-datacloud-devops'));
     });
 
     it('Windows → %LOCALAPPDATA%/<app>/logs', () => {
@@ -51,10 +51,10 @@ describe('diagnostics/storage', () => {
 
     it('Linux → XDG_STATE_HOME/<app>/logs, defaulting under ~/.local/state', () => {
       expect(resolveLogDir({ platform: 'linux', home: '/home/x', env: {} })).to.equal(
-        '/home/x/.local/state/salesforce-datacloud-devops/logs'
+        join('/home/x', '.local', 'state', 'salesforce-datacloud-devops', 'logs')
       );
       expect(resolveLogDir({ platform: 'linux', home: '/home/x', env: { XDG_STATE_HOME: '/xdg' } })).to.equal(
-        '/xdg/salesforce-datacloud-devops/logs'
+        join('/xdg', 'salesforce-datacloud-devops', 'logs')
       );
     });
   });

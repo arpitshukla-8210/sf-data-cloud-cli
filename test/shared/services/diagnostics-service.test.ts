@@ -83,7 +83,10 @@ describe('diagnostics-service', () => {
       expect(result.includedEnvironment).to.equal(false);
       expect(existsSync(outputPath)).to.equal(true);
 
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).trim().split('\n');
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' })
+        .trim()
+        .replace(/\r/g, '')
+        .split('\n');
       expect(listing).to.include('logs/2026-07-03T10-00-00.data-cloud-deploy.aaa111.ndjson');
       expect(listing).to.include('logs/2026-07-02T10-00-00.data-cloud-retrieve.bbb222.ndjson');
       expect(listing).to.include('manifest.json');
@@ -122,7 +125,7 @@ describe('diagnostics-service', () => {
       });
 
       expect(result.fileCount).to.equal(1);
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' });
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).replace(/\r/g, '');
       expect(listing).to.include('logs/recent.ndjson');
       expect(listing).to.not.include('stale.ndjson');
     });
@@ -143,7 +146,7 @@ describe('diagnostics-service', () => {
       });
 
       expect(result.fileCount).to.equal(1);
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' });
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).replace(/\r/g, '');
       expect(listing).to.not.include('notes.txt');
       expect(listing).to.not.include('config.json');
     });
@@ -163,7 +166,7 @@ describe('diagnostics-service', () => {
       });
 
       expect(result.fileCount).to.equal(2);
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' });
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).replace(/\r/g, '');
       expect(listing).to.include('logs/rolled.ndjson.gz');
     });
 
@@ -187,7 +190,7 @@ describe('diagnostics-service', () => {
 
       expect(result.truncated).to.equal(true);
       expect(result.fileCount).to.equal(1); // only the single newest 1KB file fits under 1500 bytes
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' });
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).replace(/\r/g, '');
       expect(listing).to.include('logs/newest.ndjson');
       expect(listing).to.not.include('oldest.ndjson');
     });
@@ -207,7 +210,7 @@ describe('diagnostics-service', () => {
       expect(result.truncated).to.equal(false);
       expect(existsSync(outputPath)).to.equal(true);
       // The archive still lists a manifest (and extracts cleanly).
-      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' });
+      const listing = execFileSync('tar', ['-tzf', outputPath], { encoding: 'utf8' }).replace(/\r/g, '');
       expect(listing).to.include('manifest.json');
     });
 

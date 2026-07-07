@@ -48,7 +48,10 @@ describe('diagnostics/tar-writer', () => {
     writeFileSync(archivePath, gz);
 
     // `tar -tzf` must list both entries in order.
-    const listing = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf8' }).trim().split('\n');
+    const listing = execFileSync('tar', ['-tzf', archivePath], { encoding: 'utf8' })
+      .trim()
+      .replace(/\r/g, '')
+      .split('\n');
     expect(listing).to.deep.equal(['logs/one.ndjson', 'manifest.json']);
 
     // `tar -xzf` must extract byte-identical contents.
