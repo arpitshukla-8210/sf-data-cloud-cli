@@ -21,6 +21,9 @@ import {
   getSnapshot,
   createPromotion,
   getPromotionStatus,
+  getRequest,
+  correlationHeaders,
+  CORRELATION_ID_HEADER,
 } from '../../../src/shared/services/devops-api.js';
 import { DeployApiRequest } from '../../../src/shared/types/deploy.js';
 import {
@@ -40,10 +43,16 @@ type RecordedRequest = string | { method?: string; url?: string; body?: unknown;
  * or the full HttpRequest object for POSTs — and resolves to `response`, or rejects with `reject`
  * when provided (to exercise the error-mapping branches).
  */
-const makeConn = (opts: { response?: unknown; reject?: unknown }): { conn: Connection; calls: RecordedRequest[] } => {
+const makeConn = (opts: {
+  response?: unknown;
+  reject?: unknown;
+  orgId?: string;
+}): { conn: Connection; calls: RecordedRequest[] } => {
   const calls: RecordedRequest[] = [];
   const conn = {
     getApiVersion: () => '62.0',
+    // Mirrors the real accessor safeOrgId reads; orgId is undefined unless a test supplies one.
+    getAuthInfoFields: () => ({ orgId: opts.orgId }),
     request: (request: RecordedRequest) => {
       calls.push(request);
       return opts.reject ? Promise.reject(opts.reject) : Promise.resolve(opts.response);
@@ -97,6 +106,29 @@ describe('devops-api', () => {
       const body = { supportedComponentTypes: { CalculatedInsight: 'Calculated Insight' } };
       const { conn } = makeConn({ response: body });
       expect(await getComponentTypes(conn)).to.deep.equal(body);
+    });
+  });
+
+  describe('correlation-header gate (dormant until backend confirms the name)', () => {
+    it('defaults OFF: getRequest returns the bare URL string and correlationHeaders is empty', () => {
+      // Production behavior is unchanged today — the whole header path is inert plumbing.
+      expect(getRequest('/x', 'corr-1')).to.equal('/x');
+      expect(correlationHeaders('corr-1')).to.deep.equal({});
+    });
+
+    it('when enabled, getRequest returns an HttpRequest object carrying the correlation header', () => {
+      expect(getRequest('/x', 'corr-1', true)).to.deep.equal({
+        method: 'GET',
+        url: '/x',
+        headers: { [CORRELATION_ID_HEADER]: 'corr-1' },
+      });
+      expect(correlationHeaders('corr-1', true)).to.deep.equal({ [CORRELATION_ID_HEADER]: 'corr-1' });
+    });
+
+    it('the default GET path still sends a bare URL string (header gate off)', async () => {
+      const { conn, calls } = makeConn({ response: { supportedComponentTypes: {} } });
+      await getComponentTypes(conn);
+      expect(calls[0]).to.be.a('string'); // not an HttpRequest object
     });
   });
 
@@ -316,8 +348,9 @@ describe('devops-api', () => {
       resetTelemetry();
     });
 
-    it('emits a safe API_REQUEST success event for component types (no componentType key, real count)', async () => {
+    it('emits a safe API_REQUEST success event for component types (no componentType key, real count, orgId)', async () => {
       const { conn } = makeConn({
+        orgId: '00DXX0000000000AAA',
         response: { supportedComponentTypes: { CalculatedInsight: 'Calculated Insight', DataModelObject: 'DMO' } },
       });
       await getComponentTypes(conn);
@@ -329,11 +362,19 @@ describe('devops-api', () => {
       expect(e.surface).to.equal('cli');
       expect(e.correlationId).to.match(UUID_RE); // client-generated CLI-side trace id
       expect(e.operation).to.equal('componentTypes');
+      expect(e.orgId).to.equal('00DXX0000000000AAA'); // customer-org correlation
       expect(Object.keys(e)).to.not.include('componentType'); // no type arg for this fn
       expect(e.success).to.equal(true);
       expect(e.resultCount).to.equal(2);
       expect(Number.isInteger(e.durationMs)).to.equal(true);
       assertAllSafe(telemetry);
+    });
+
+    it('omits orgId when the connection has no org id (optional-field rule)', async () => {
+      const { conn } = makeConn({ response: { supportedComponentTypes: {} } });
+      await getComponentTypes(conn);
+      const e = ourEvents(telemetry)[0];
+      expect(Object.keys(e)).to.not.include('orgId');
     });
 
     it('generates a fresh correlationId per request (not a constant)', async () => {
@@ -386,9 +427,12 @@ describe('devops-api', () => {
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('DataCloudApiAuthError');
       expect(e.resultCount).to.equal(0);
-      // The raw err.message ('Session expired') must never reach telemetry — only the code is read.
+      // errorMessage now carries the MAPPED text (actionable, redacted) under the `errorMessage` key —
+      // never the raw 'Session expired', and never under a `message` key.
       expect(Object.keys(e)).to.not.include('message');
+      expect(e.errorMessage).to.be.a('string').and.to.include('session is invalid or expired');
       expect(JSON.stringify(e)).to.not.match(/Session expired/);
+      expect(Object.keys(e)).to.not.include('gackId'); // extraction disabled
       assertAllSafe(telemetry);
     });
 

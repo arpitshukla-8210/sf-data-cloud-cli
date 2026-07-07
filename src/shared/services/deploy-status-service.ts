@@ -18,8 +18,18 @@ import { randomUUID } from 'node:crypto';
 import { Connection, SfError } from '@salesforce/core';
 import { DeploymentLifecycleStatus } from '../types/deploy.js';
 import { ComponentStatus, DeployStatusComponent, DeployStatusResult } from '../types/deploy-status.js';
+import { getDiagLogger } from '../diagnostics/logger.js';
+import { Subsystem } from '../diagnostics/event.js';
 import { getPromotionStatus } from './devops-api.js';
-import { emitTelemetry } from './telemetry.js';
+import { emitTelemetry, safeOrgId, errorMessageFrom, extractGackId } from './telemetry.js';
+
+/*
+ * The local diagnostic `extra` keys below use snake_case by design — the on-disk NDJSON row schema
+ * (event.ts) is a stable log-ingest contract whose field names match the remote telemetry fields, so
+ * a support engineer can grep the local log with the same names they see in App Insights. The
+ * camelCase telemetry attributes in the same file stay valid camelCase and are unaffected.
+ */
+/* eslint-disable camelcase */
 
 /*
  * Orchestrator for `sf data-cloud deploy status` (PROJECT_KNOWLEDGE.md §2.4, §5.7). Mirrors
@@ -93,8 +103,16 @@ export async function checkDeployStatus(conn: Connection, jobId: string): Promis
   // Client-generated CLI-side trace id for this poll (§2.4). Emitted in telemetry now that the status
   // backend is live; sending it as a request header is deferred until that contract exists.
   const correlationId = randomUUID();
+  // Local diagnostic channel (passive observer, separate from telemetry). Reuse the orchestrator's
+  // correlationId so the on-disk logs join to the telemetry events by one id.
+  const diag = getDiagLogger().begin({ command: 'data-cloud deploy status', correlationId });
+  // The org this poll runs against — mirrors the remote telemetry `orgId`. Computed once (guarded,
+  // never throws) and reused across the diagnostic events, the poll telemetry, and the failure sub-events.
+  const orgId = safeOrgId(conn);
   try {
-    const api = await getPromotionStatus(conn, jobId);
+    diag.trace(Subsystem.DEPLOY, 'POLL_STATUS', 'polling promotion status', { job_id: jobId });
+    // Pass our correlationId so the (future) request header matches the id emitted in telemetry below.
+    const api = await getPromotionStatus(conn, jobId, correlationId);
 
     const components: DeployStatusComponent[] = api.components.map((c) => ({
       componentName: c.componentName,
@@ -113,8 +131,10 @@ export async function checkDeployStatus(conn: Connection, jobId: string): Promis
     const isTerminal = result.status === 'SUCCESS' || result.status === 'FAILED';
     void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL', {
       correlationId,
+      ...(orgId && { orgId }),
       lifecycleStatus: result.status,
       isTerminal,
+      // `success` is the business outcome — did the deploy JOB succeed (a terminal SUCCESS status).
       success: result.status === 'SUCCESS',
       componentCount: components.length,
       hadComponentError: components.some((c) => c.status === 'FAILED'),
@@ -122,14 +142,53 @@ export async function checkDeployStatus(conn: Connection, jobId: string): Promis
       // Machine-parseable classification for agent/CI consumers; present only on a terminal FAILED.
       ...(result.status === 'FAILED' && { errorCode: deriveDeployErrorCode(components) }),
     });
+    diag.info(Subsystem.DEPLOY, 'CMD_END', 'deploy status polled', {
+      duration_ms: Date.now() - startedAt,
+      lifecycle_status: result.status,
+      component_count: components.length,
+      ...(orgId && { org_id: orgId }),
+    });
+
+    // Per-component failure detail (§5.7, Jun 2026 decision): one sub-event per FAILED component,
+    // sharing the poll's correlationId so they join. Unlike the bounded poll event, this deliberately
+    // carries the customer's OWN componentName + error reason for production debugging (the privacy
+    // relaxation is scoped to this event name only). `lineNumber` is omitted — no such field exists in
+    // the backend contract. emitTelemetry stays fire-and-forget, so this never affects the result.
+    const failed = components.filter((c) => c.status === 'FAILED');
+    failed.forEach((c, failedIndex) => {
+      const componentErrorMessage = errorMessageFrom(c.error);
+      const gackId = extractGackId(c.error);
+      void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE', {
+        correlationId,
+        ...(orgId && { orgId }),
+        componentType: c.componentType,
+        componentName: c.componentName,
+        failedIndex,
+        failedCount: failed.length,
+        ...(componentErrorMessage && { errorMessage: componentErrorMessage }),
+        ...(gackId && { gackId }),
+      });
+    });
 
     return result;
   } catch (err) {
+    const errorMessage = errorMessageFrom(err);
+    const gackId = extractGackId(errorMessage);
     void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL', {
       correlationId,
+      ...(orgId && { orgId }),
       success: false,
       durationMs: Date.now() - startedAt,
       errorCode: err instanceof SfError ? err.code : 'UnexpectedError',
+      ...(errorMessage && { errorMessage }),
+      ...(gackId && { gackId }),
+    });
+    diag.error(Subsystem.DEPLOY, 'CMD_ERR', 'deploy status poll failed', {
+      duration_ms: Date.now() - startedAt,
+      error_code: err instanceof SfError ? err.code : 'UnexpectedError',
+      ...(errorMessage && { error_message: errorMessage }),
+      ...(orgId && { org_id: orgId }),
+      err,
     });
     throw err; // re-throw the ORIGINAL error object — propagation unchanged.
   }

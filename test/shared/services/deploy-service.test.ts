@@ -43,9 +43,11 @@ const JOB_ID = '08PVF000002iQIb';
  * rejects with `reject` to exercise the API-error path. The deploy service never inspects the
  * connection beyond handing it to createPromotion, so a minimal stub suffices.
  */
-const fakeConn = (opts: { reject?: unknown } = {}): Connection =>
+const fakeConn = (opts: { reject?: unknown; orgId?: string } = {}): Connection =>
   ({
     getApiVersion: () => '62.0',
+    // Mirrors the real accessor safeOrgId reads; orgId is undefined unless a test supplies one.
+    getAuthInfoFields: () => ({ orgId: opts.orgId }),
     request: () =>
       opts.reject ? Promise.reject(opts.reject) : Promise.resolve({ status: 'SUBMITTED', jobId: JOB_ID }),
   } as unknown as Connection);
@@ -183,14 +185,24 @@ describe('deploy-service', () => {
       const e = events[0];
       expect(e.success).to.equal(false);
       expect(e.errorCode).to.equal('DataCloudApiAuthError');
+      // errorMessage carries the MAPPED text under `errorMessage` — never the raw 'Session expired',
+      // never under a `message` key.
       expect(Object.keys(e)).to.not.include('message');
+      expect(e.errorMessage).to.be.a('string').and.to.include('session is invalid or expired');
       expect(JSON.stringify(e)).to.not.match(/Session expired/);
       assertAllSafe(telemetry);
     });
 
     describe('telemetry', () => {
       it('emits exactly one safe DEPLOY_COMPONENT success event with graph size and SUBMITTED status', async () => {
-        await deployComponents(fakeConn(), 'CalculatedInsight:highValueCustomer', 'default', { baseDir: tmp });
+        await deployComponents(
+          fakeConn({ orgId: '00DXX0000000000AAA' }),
+          'CalculatedInsight:highValueCustomer',
+          'default',
+          {
+            baseDir: tmp,
+          }
+        );
 
         const events = ourEvents(telemetry);
         expect(events).to.have.lengthOf(1);
@@ -198,6 +210,7 @@ describe('deploy-service', () => {
         expect(e.eventName).to.equal('DATACLOUD_DEVOPS_DEPLOY_COMPONENT');
         expect(e.surface).to.equal('cli');
         expect(e.correlationId).to.match(UUID_RE); // client-generated CLI-side trace id (backend live)
+        expect(e.orgId).to.equal('00DXX0000000000AAA'); // customer-org correlation
         expect(e.componentType).to.equal('CalculatedInsight');
         expect(e.success).to.equal(true);
         expect(e.componentCount).to.equal(2); // CI + its one DMO dependency

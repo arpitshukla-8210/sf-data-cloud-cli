@@ -33,6 +33,14 @@
   },
   {
     "alias": [],
+    "command": "data-cloud:diagnostics",
+    "flagAliases": ["o"],
+    "flagChars": [],
+    "flags": ["days", "flags-dir", "include-env", "json", "output"],
+    "plugin": "@salesforce/plugin-datacloud-devops"
+  },
+  {
+    "alias": [],
     "command": "data-cloud:retrieve",
     "flagAliases": ["target-org"],
     "flagChars": ["o"],

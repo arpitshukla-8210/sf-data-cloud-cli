@@ -169,6 +169,7 @@ describe('data-cloud deploy status', () => {
       expect(e.correlationId).to.match(UUID_RE); // client-generated CLI-side trace id (backend live)
       expect(e.lifecycleStatus).to.equal('SUCCESS'); // raw contract enum, NOT 'SUCCEEDED'
       expect(e.isTerminal).to.equal(true);
+      // `success` is the business outcome — the deploy job reached terminal SUCCESS.
       expect(e.success).to.equal(true);
       expect(e.componentCount).to.be.a('number');
       expect(e.componentCount).to.equal(1);
@@ -194,15 +195,17 @@ describe('data-cloud deploy status', () => {
 
       await DataCloudDeployStatus.run(['--job-id', JOB_ID, '--target-org', testOrg.username]);
 
-      const e = ourEvents(telemetry)[0];
+      // The poll event is emitted first; a per-component failure sub-event follows (allowed to carry the name).
+      const e = ourEvents(telemetry).find((ev) => ev.eventName === 'DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL')!;
       expect(e.correlationId).to.match(UUID_RE);
       expect(e.lifecycleStatus).to.equal('FAILED');
       expect(e.isTerminal).to.equal(true);
+      // The deploy job failed, so the business-outcome `success` is false.
       expect(e.success).to.equal(false);
       expect(e.hadComponentError).to.equal(true); // presence only
       // Machine-parseable classification for agent/CI consumers — the code, never the name/message.
       expect(e.errorCode).to.equal('ComponentValidationError');
-      // The component name ('MyCi') and the error message must never ship.
+      // The bounded poll event still ships no component name or error message.
       expect(JSON.stringify(e)).to.not.match(/MyCi|Expression invalid|line 4/);
       assertAllSafe(telemetry);
     });

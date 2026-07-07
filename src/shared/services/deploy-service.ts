@@ -18,9 +18,19 @@ import { randomUUID } from 'node:crypto';
 import { Connection, SfError } from '@salesforce/core';
 import { DeployResult, DeployApiRequest, DeployApiResponse, DeploymentLifecycleStatus } from '../types/deploy.js';
 import { ComponentFile } from '../types/file-layout.js';
+import { getDiagLogger } from '../diagnostics/logger.js';
+import { Subsystem } from '../diagnostics/event.js';
 import { readComponentFile, collectTransitiveDependencies } from './file-reader.js';
 import { createPromotion } from './devops-api.js';
-import { emitTelemetry, safeComponentType } from './telemetry.js';
+import { emitTelemetry, safeComponentType, safeOrgId, errorMessageFrom, extractGackId } from './telemetry.js';
+
+/*
+ * The local diagnostic `extra` keys below use snake_case by design — the on-disk NDJSON row schema
+ * (event.ts) is a stable log-ingest contract whose field names match the remote telemetry fields, so
+ * a support engineer can grep the local log with the same names they see in App Insights. The
+ * camelCase telemetry attributes in the same file stay valid camelCase and are unaffected.
+ */
+/* eslint-disable camelcase */
 
 /*
  * Orchestrator for `sf data-cloud deploy` (PROJECT_KNOWLEDGE.md §2.3, §5.6, §6.1). Mirrors
@@ -87,6 +97,12 @@ export async function deployComponents(
   // Client-generated CLI-side trace id for this deploy (§2.4). Emitted in telemetry now that the
   // deploy backend is live; sending it as a request header is deferred until that contract exists.
   const correlationId = randomUUID();
+  // Local diagnostic channel (passive observer, separate from telemetry). Reuse the orchestrator's
+  // correlationId so the on-disk logs join to the telemetry events by one id.
+  const diag = getDiagLogger().begin({ command: 'data-cloud deploy', correlationId });
+  // The org this deploy runs against — mirrors the remote telemetry `orgId`. Computed once (guarded,
+  // never throws) and reused across the diagnostic events and telemetry below.
+  const orgId = safeOrgId(conn);
   let componentType = 'unknown'; // bounded TYPE only; set after parse. Never the component name.
   let componentCount = 0;
   try {
@@ -94,24 +110,43 @@ export async function deployComponents(
 
     const parsed = parseComponentFlag(component);
     componentType = safeComponentType(parsed.componentType);
+    diag.info(Subsystem.DEPLOY, 'CMD_START', 'deploy started', {
+      component_type: componentType,
+      ...(orgId && { org_id: orgId }),
+    });
 
+    diag.debug(Subsystem.DEPLOY, 'DEP_WALK_START', 'walking transitive dependencies', {
+      component_type: componentType,
+    });
     const rootComponent = await readComponentFile(parsed.componentType, parsed.componentName, dataspace, { baseDir });
     const allComponents = await collectTransitiveDependencies([rootComponent], dataspace, { baseDir });
     componentCount = allComponents.length;
+    diag.debug(Subsystem.DEPLOY, 'DEP_WALK_END', 'dependency walk complete', { component_count: componentCount });
 
     const request = assembleDeployRequest(allComponents);
+    diag.debug(Subsystem.DEPLOY, 'DEPLOY_ASSEMBLE', 'assembled deploy request', { component_count: componentCount });
 
-    const api: DeployApiResponse = await createPromotion(conn, request);
+    diag.info(Subsystem.DEPLOY, 'DEPLOY_SUBMIT', 'submitting promotion', {
+      component_count: componentCount,
+      ...(orgId && { org_id: orgId }),
+    });
+    // Pass our correlationId so the (future) request header matches the id emitted in telemetry below.
+    const api: DeployApiResponse = await createPromotion(conn, request, correlationId);
     // The backend always returns a tracking jobId alongside the submission status.
     const result: DeployResult = {
       jobId: api.jobId,
       status: api.status as DeploymentLifecycleStatus,
     };
+    diag.info(Subsystem.DEPLOY, 'DEPLOY_COMPLETE', 'promotion submitted', {
+      status: result.status,
+      component_count: componentCount,
+    });
 
     const dependencyCount = componentCount > 0 ? componentCount - 1 : 0;
     void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_COMPONENT', {
       correlationId,
       componentType,
+      ...(orgId && { orgId }),
       success: true,
       componentCount,
       dependencyCount,
@@ -119,18 +154,36 @@ export async function deployComponents(
       lifecycleStatus: result.status, // 'SUBMITTED' on the live synchronous response (§5.6).
       durationMs: Date.now() - startedAt,
     });
+    diag.info(Subsystem.DEPLOY, 'CMD_END', 'deploy finished', {
+      duration_ms: Date.now() - startedAt,
+      status: result.status,
+      component_count: componentCount,
+      ...(orgId && { org_id: orgId }),
+    });
 
     return result;
   } catch (err) {
+    const errorMessage = errorMessageFrom(err);
+    const gackId = extractGackId(errorMessage);
     void emitTelemetry('DATACLOUD_DEVOPS_DEPLOY_COMPONENT', {
       correlationId,
       componentType,
+      ...(orgId && { orgId }),
       success: false,
       componentCount: 0,
       dependencyCount: 0,
       hadDependencies: false,
       durationMs: Date.now() - startedAt,
       errorCode: err instanceof SfError ? err.code : 'UnexpectedError',
+      ...(errorMessage && { errorMessage }),
+      ...(gackId && { gackId }),
+    });
+    diag.error(Subsystem.DEPLOY, 'CMD_ERR', 'deploy failed', {
+      duration_ms: Date.now() - startedAt,
+      error_code: err instanceof SfError ? err.code : 'UnexpectedError',
+      ...(errorMessage && { error_message: errorMessage }),
+      ...(orgId && { org_id: orgId }),
+      err,
     });
     throw err; // re-throw the ORIGINAL error object — propagation unchanged.
   }
