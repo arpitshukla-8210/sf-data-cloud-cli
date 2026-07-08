@@ -198,12 +198,13 @@ describe('file-writer', () => {
       expect(readRaw(manifestPath)).to.equal(onDisk({ deploymentOrder: [] }));
     });
 
-    it('writes NOTHING when any one component has an unsupported type (atomic plan-then-write guarantee)', async () => {
-      // A valid component FIRST, then one with an unsupported componentType. The path for every
-      // component is resolved synchronously up front, so the bad type throws during the plan phase
-      // before any I/O. If the writer streamed instead, the good component would land on disk before
-      // the bad one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree"
-      // guarantee.
+    it('writes NOTHING when any one component has an invalid (empty) type (atomic plan-then-write guarantee)', async () => {
+      // A valid component FIRST, then one with an empty componentType. The path for every component
+      // is resolved synchronously up front, so the invalid type throws during the plan phase before
+      // any I/O. If the writer streamed instead, the good component would land on disk before the
+      // bad one threw — so a zero-file tree proves the §4.2 "no partial, half-written tree"
+      // guarantee. (Unlike before, an unknown-but-well-formed type no longer errors: it derives a
+      // folder. Only a structurally invalid type — empty/blank — is rejected.)
       const components: RawRetrievedComponent[] = [
         {
           componentType: 'CalculatedInsight',
@@ -213,7 +214,7 @@ describe('file-writer', () => {
           entityPayload: { masterLabel: 'good' },
         },
         {
-          componentType: 'NotARealType',
+          componentType: '',
           componentName: 'badType',
           dataspaceName: 'default',
           dependsOn: [],
@@ -225,8 +226,8 @@ describe('file-writer', () => {
         await writeRetrievedComponents(components, { baseDir: tmp });
         expect.fail('Should have thrown');
       } catch (error) {
-        expect((error as Error).name).to.equal('UnknownComponentTypeError');
-        expect((error as Error).message).to.match(/Unknown component type/);
+        expect((error as Error).name).to.equal('InvalidComponentTypeError');
+        expect((error as Error).message).to.match(/empty or invalid/);
       }
 
       // The entire data-cloud/ tree is absent: not the good component's file, not the manifest.
@@ -235,14 +236,26 @@ describe('file-writer', () => {
   });
 
   describe('folderForComponentType', () => {
-    it('maps known types to kebab-case plural folders', () => {
+    it('derives kebab-case plural folders for PascalCase types', () => {
       expect(folderForComponentType('CalculatedInsight')).to.equal('calculated-insights');
       expect(folderForComponentType('DataModelObject')).to.equal('data-model-objects');
       expect(folderForComponentType('DataLakeObject')).to.equal('data-lake-objects');
     });
 
-    it('throws a structured error for an unknown type', () => {
-      expect(() => folderForComponentType('NotARealType')).to.throw(/Unknown component type/);
+    it('derives a folder for a brand-new backend type with no CLI change (the decoupling guarantee)', () => {
+      // A type the CLI has never heard of resolves to a valid kebab-plural folder purely by
+      // derivation — no catalog entry, no release required.
+      expect(folderForComponentType('DataMesh')).to.equal('data-meshes');
+      expect(folderForComponentType('DataWebhook')).to.equal('data-webhooks');
+    });
+
+    it('splits acronym runs when deriving (HTTPConnection -> http-connections)', () => {
+      expect(folderForComponentType('HTTPConnection')).to.equal('http-connections');
+    });
+
+    it('throws a structured error for an empty/blank type', () => {
+      expect(() => folderForComponentType('')).to.throw(/empty or invalid/);
+      expect(() => folderForComponentType('   ')).to.throw(/empty or invalid/);
     });
   });
 });

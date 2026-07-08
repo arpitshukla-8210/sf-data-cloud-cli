@@ -15,7 +15,6 @@
  */
 
 import { Connection, Lifecycle } from '@salesforce/core';
-import { FOLDER_BY_TYPE } from '../constants/component-paths.js';
 
 /*
  * Single telemetry chokepoint for the Data Cloud DevOps plugin (PROJECT_KNOWLEDGE.md §2.4, §4.4).
@@ -34,14 +33,26 @@ import { FOLDER_BY_TYPE } from '../constants/component-paths.js';
 /** Only flat, non-PII-shaped primitives may be attached to a telemetry event. */
 export type TelemetryAttributes = Record<string, string | number | boolean>;
 
+/** Shape a component type must have to be safe on telemetry: a PascalCase-style identifier. */
+const COMPONENT_TYPE_SHAPE = /^[A-Za-z][A-Za-z0-9]*$/;
+/** Upper bound on a component-type length attached to telemetry, to reject pathological strings. */
+const MAX_COMPONENT_TYPE_LENGTH = 64;
+
 /**
- * Bounds a component type to the known catalog before it is attached to telemetry. `--component`
- * (TYPE:NAME) and `--component-type` are free text that the CLI does not validate against the
- * catalog, so a value like `/Users/me/secret` or `acct@corp.com` could otherwise reach telemetry.
- * Returns the type only when it is a known type; otherwise the bounded literal 'other'.
+ * Bounds a component type before it is attached to telemetry. `--component` (TYPE:NAME) and
+ * `--component-type` are free text that the CLI does not validate, so a value like
+ * `/Users/me/secret` or `acct@corp.com` could otherwise reach telemetry. Since the CLI no longer
+ * keeps a hardcoded type catalog (folder names are derived at runtime), this guards by SHAPE rather
+ * than catalog membership: a bounded-length, separator-free identifier passes through as-is (so a
+ * genuine new backend type like `DataMesh` is reported faithfully); anything with a path separator,
+ * space, `@`, `:`, `.`, hyphen, or other non-identifier character collapses to the literal 'other'.
  */
 export function safeComponentType(componentType: string): string {
-  return Object.hasOwn(FOLDER_BY_TYPE, componentType) ? componentType : 'other';
+  return typeof componentType === 'string' &&
+    componentType.length <= MAX_COMPONENT_TYPE_LENGTH &&
+    COMPONENT_TYPE_SHAPE.test(componentType)
+    ? componentType
+    : 'other';
 }
 
 /**

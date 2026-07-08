@@ -66,8 +66,16 @@ describe('file-reader', () => {
       );
     });
 
-    it('throws UnknownComponentTypeError for an unsupported type', () => {
-      expect(() => pathForComponent('NotARealType', 'x', 'default', tmp)).to.throw(/Unknown component type/);
+    it('derives a folder for a brand-new type so it can be read back with no CLI change', () => {
+      // A type the CLI has never heard of resolves to the same kebab-plural folder the writer used.
+      expect(pathForComponent('DataMesh', 'myMesh', 'default', tmp)).to.equal(
+        join(tmp, 'data-cloud', 'default', 'data-meshes', 'myMesh.json')
+      );
+    });
+
+    it('throws InvalidComponentTypeError for an empty/blank type', () => {
+      expect(() => pathForComponent('', 'x', 'default', tmp)).to.throw(/empty or invalid/);
+      expect(() => pathForComponent('   ', 'x', 'default', tmp)).to.throw(/empty or invalid/);
     });
   });
 

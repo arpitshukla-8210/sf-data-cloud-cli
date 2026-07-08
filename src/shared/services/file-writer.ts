@@ -16,10 +16,9 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
-import { SfError } from '@salesforce/core';
 import { RawRetrievedComponent } from '../types/retrieve.js';
 import { ComponentFile, Manifest, ManifestEntry } from '../types/file-layout.js';
-import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
+import { folderForComponentType, isRootRouted, ROOT_DIR, MANIFEST_FILE } from '../constants/component-paths.js';
 import { getDiagLogger } from '../diagnostics/logger.js';
 import { Subsystem } from '../diagnostics/event.js';
 
@@ -38,19 +37,9 @@ import { Subsystem } from '../diagnostics/event.js';
  * internals. Writes are idempotent (re-retrieve silently overwrites). No network, no org contact.
  */
 
-/**
- * Maps a component type to its on-disk folder name (§5.2). Throws a structured error for an
- * unsupported type rather than silently writing to a bad path.
- */
-export function folderForComponentType(componentType: string): string {
-  if (!Object.hasOwn(FOLDER_BY_TYPE, componentType)) {
-    throw new SfError(
-      `Unknown component type "${componentType}". Supported types: ${Object.keys(FOLDER_BY_TYPE).join(', ')}.`,
-      'UnknownComponentTypeError'
-    );
-  }
-  return FOLDER_BY_TYPE[componentType];
-}
+// Folder-name derivation lives in the shared path module so the writer and reader use the identical
+// function (deploy finds exactly what retrieve wrote). Re-exported for backward-compatible imports.
+export { folderForComponentType } from '../constants/component-paths.js';
 
 /**
  * Computes the absolute on-disk path for a component (§5.2). Root-routed components (dataspace-

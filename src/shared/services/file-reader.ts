@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { SfError } from '@salesforce/core';
 import { ComponentFile } from '../types/file-layout.js';
-import { FOLDER_BY_TYPE, isRootRouted, ROOT_DIR } from '../constants/component-paths.js';
+import { folderForComponentType, isRootRouted, ROOT_DIR } from '../constants/component-paths.js';
 import { getDiagLogger } from '../diagnostics/logger.js';
 import { Subsystem } from '../diagnostics/event.js';
 
@@ -41,11 +41,12 @@ const REQUIRED_FIELDS = ['componentType', 'componentName', 'dataspaceName', 'dep
 
 /**
  * Computes the canonical absolute on-disk path for a component (§5.2) — where the file-writer puts
- * it. Root-routed components (DLOs, or any with an empty/absent dataspaceName) live at
- * `<baseDir>/data-cloud/<folder>/<name>.json`; all others at
+ * it. The folder name is derived by the SAME shared function the writer uses, so the reader always
+ * looks where the writer wrote. Root-routed components (DLOs, or any with an empty/absent
+ * dataspaceName) live at `<baseDir>/data-cloud/<folder>/<name>.json`; all others at
  * `<baseDir>/data-cloud/<dataspaceName>/<folder>/<name>.json`.
  *
- * @throws SfError('UnknownComponentTypeError') when the type has no known folder.
+ * @throws SfError('InvalidComponentTypeError') when the type is empty/blank.
  */
 export function pathForComponent(
   componentType: string,
@@ -53,13 +54,7 @@ export function pathForComponent(
   dataspaceName: string,
   baseDir: string
 ): string {
-  if (!Object.hasOwn(FOLDER_BY_TYPE, componentType)) {
-    throw new SfError(
-      `Unknown component type "${componentType}". Supported types: ${Object.keys(FOLDER_BY_TYPE).join(', ')}.`,
-      'UnknownComponentTypeError'
-    );
-  }
-  const folder = FOLDER_BY_TYPE[componentType];
+  const folder = folderForComponentType(componentType);
   const fileName = `${componentName}.json`;
   if (isRootRouted(componentType, dataspaceName)) {
     return join(baseDir, ROOT_DIR, folder, fileName);
@@ -72,7 +67,7 @@ export function pathForComponent(
  * component stored without a dataspace (at the root) is therefore found even when a dataspace
  * context is passed; for root-routed types the root is the only candidate.
  *
- * @throws SfError('UnknownComponentTypeError') when the type has no known folder.
+ * @throws SfError('InvalidComponentTypeError') when the type is empty/blank.
  */
 function candidatePaths(
   componentType: string,
@@ -82,7 +77,7 @@ function candidatePaths(
 ): string[] {
   // Validates the type and yields the canonical (writer) path.
   const canonical = pathForComponent(componentType, componentName, dataspaceName, baseDir);
-  const rootPath = join(baseDir, ROOT_DIR, FOLDER_BY_TYPE[componentType], `${componentName}.json`);
+  const rootPath = join(baseDir, ROOT_DIR, folderForComponentType(componentType), `${componentName}.json`);
   return canonical === rootPath ? [rootPath] : [rootPath, canonical];
 }
 
