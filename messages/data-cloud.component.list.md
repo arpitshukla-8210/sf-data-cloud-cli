@@ -6,15 +6,13 @@ List Data Cloud components filtered by type and dataspace.
 
 Returns a targeted list of metadata components currently configured within a specific Data Cloud (Data 360) dataspace that match a specified component type. Pass a component type value from "sf data-cloud component-type list".
 
-This command currently returns dummy data and does not contact an org.
-
 # flags.component-type.summary
 
 API name of the component type to filter by (for example, CalculatedInsight).
 
 # flags.dataspace.summary
 
-Developer name of the dataspace to scope the lookup to.
+Developer name of the dataspace to scope the lookup to. Optional; if omitted, the org's default dataspace context is used.
 
 # flags.src-org.summary
 
@@ -33,3 +31,7 @@ Username or alias of the source org to list components from.
 # info.found
 
 Found %s components matching type '%s' in dataspace '%s'.
+
+# info.foundNoDataspace
+
+Found %s components matching type '%s'.

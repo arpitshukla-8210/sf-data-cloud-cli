@@ -22,7 +22,7 @@
         },
         "fileWriteLocation": {
           "type": "string",
-          "description": "Dataspace-aware directory the components would be written to (§5.2)."
+          "description": "Write root for this retrieve (§5.2), e.g. \"./data-cloud/default/\". DataLakeObject definitions are written outside this dir (./data-cloud/data-lake-objects/); see \"./data-cloud/manifest.json\" for the authoritative inventory of all files written."
         }
       },
       "required": ["dataspace", "targetComponent", "retrievedComponents", "fileWriteLocation"],

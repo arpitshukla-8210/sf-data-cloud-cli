@@ -1,0 +1,126 @@
+/*
+ * Copyright 2026, Salesforce, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { Connection, Lifecycle } from '@salesforce/core';
+
+/*
+ * Single telemetry chokepoint for the Data Cloud DevOps plugin (PROJECT_KNOWLEDGE.md §2.4, §4.4).
+ * Plugins emit domain-specific signals on the shared Lifecycle 'telemetry' channel; the sf CLI's
+ * telemetry infrastructure (not this plugin) subscribes, enriches with command/version/duration,
+ * and uploads. We centralize three guarantees here so they cannot drift across call sites:
+ *   1. NEVER THROW / NEVER BLOCK — the body is try/caught and callers use `void`, so a listener or
+ *      emit failure can never alter a command's return value or error propagation.
+ *   2. NAMING — every event name is a DATACLOUD_DEVOPS_<VERB>_<NOUN> constant passed through here.
+ *   3. SAFE FIELDS ONLY — the attrs type is a flat map of primitives, so a caller cannot accidentally
+ *      attach a nested object, a raw API body, or a component-name struct.
+ * Emitting with no registered listener is a safe no-op in @salesforce/core (emit() only debug-logs
+ * when there are zero listeners). Tests subscribe via Lifecycle.getInstance().onTelemetry(...).
+ */
+
+/** Only flat, non-PII-shaped primitives may be attached to a telemetry event. */
+export type TelemetryAttributes = Record<string, string | number | boolean>;
+
+/** Shape a component type must have to be safe on telemetry: a PascalCase-style identifier. */
+const COMPONENT_TYPE_SHAPE = /^[A-Za-z][A-Za-z0-9]*$/;
+/** Upper bound on a component-type length attached to telemetry, to reject pathological strings. */
+const MAX_COMPONENT_TYPE_LENGTH = 64;
+
+/**
+ * Bounds a component type before it is attached to telemetry. `--component` (TYPE:NAME) and
+ * `--component-type` are free text that the CLI does not validate, so a value like
+ * `/Users/me/secret` or `acct@corp.com` could otherwise reach telemetry. Since the CLI no longer
+ * keeps a hardcoded type catalog (folder names are derived at runtime), this guards by SHAPE rather
+ * than catalog membership: a bounded-length, separator-free identifier passes through as-is (so a
+ * genuine new backend type like `DataMesh` is reported faithfully); anything with a path separator,
+ * space, `@`, `:`, `.`, hyphen, or other non-identifier character collapses to the literal 'other'.
+ */
+export function safeComponentType(componentType: string): string {
+  return typeof componentType === 'string' &&
+    componentType.length <= MAX_COMPONENT_TYPE_LENGTH &&
+    COMPONENT_TYPE_SHAPE.test(componentType)
+    ? componentType
+    : 'other';
+}
+
+/**
+ * The Salesforce org ID (00D…) for the connection, used to correlate a telemetry event to a
+ * customer org (§2.4). Synchronous, but guarded: `getAuthInfoFields()` can throw or return no orgId
+ * on a connection with incomplete auth info, so callers spread the result conditionally
+ * (`...(orgId && { orgId })`) — a missing id is omitted rather than emitted as a placeholder. An org
+ * ID is a non-PII org identifier, so it trips none of the privacy guards in telemetry-test-utils.
+ */
+export function safeOrgId(conn: Connection): string | undefined {
+  try {
+    return conn.getAuthInfoFields().orgId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The full error text for the error-path `errorMessage` field. Unlike every other telemetry value
+ * this is intentionally NOT bounded: a Jun 2026 team decision allows the raw mapped SfError message
+ * on failure events for production debugging, accepting that it may contain backend/customer detail
+ * (correlated by orgId). Only error paths attach it; success events stay free of free text.
+ */
+export function errorMessageFrom(err: unknown): string | undefined {
+  if (err instanceof Error) return err.message;
+  return typeof err === 'string' ? err : undefined;
+}
+
+/*
+ * Salesforce "gack" id extraction. A gack is a server-side exception with a unique id (canonical
+ * shape ~ NNNNNNNNN-NNNNNN). There is no dedicated gack field on the API error response, so the id —
+ * if present at all — would be embedded in the message string. It is UNVERIFIED whether the
+ * /ssot/devops/* endpoints surface a gack id in their error bodies, so extraction ships DISABLED:
+ * the flag stays false until a real gack-bearing error confirms the marker/format with the backend,
+ * which keeps false-positive ids out of telemetry. The regex is a starting guess, not a contract.
+ */
+// `: boolean` (not the literal `false`) so the guard below is a real runtime check, not narrowed to
+// dead code that the no-unnecessary-condition lint rule would reject. Flip to true to enable.
+const GACK_EXTRACTION_ENABLED: boolean = false;
+const GACK_ID_RE = /\b\d{6,}-\d{3,}\b/;
+
+/** Extracts a gack id from an error message, or undefined while extraction is disabled/unmatched. */
+export function extractGackId(message: string | undefined): string | undefined {
+  if (!GACK_EXTRACTION_ENABLED || !message) return undefined;
+  return GACK_ID_RE.exec(message)?.[0];
+}
+
+/**
+ * Emit one structured telemetry event. Fire-and-forget by design: callers MUST use `void` — this
+ * function swallows its own failures and never rejects, so it cannot affect the caller's outcome.
+ *
+ * @param eventName - full event name, already in DATACLOUD_DEVOPS_<VERB>_<NOUN> form.
+ * @param attributes - flat map of SAFE primitives only (counts, durationMs, booleans, type names,
+ * structured error codes, lifecycle states). Two deliberate exceptions (Jun 2026 decision): an
+ * `errorMessage` on error-path events, and `componentName`/error reason on the
+ * DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE sub-event. Everything else stays bounded — never pass
+ * component names, paths, or dataspace names on any other event.
+ */
+export async function emitTelemetry(eventName: string, attributes: TelemetryAttributes): Promise<void> {
+  try {
+    // `surface` distinguishes the CLI from the future MCP / Agentforce surfaces (§2.5). Callers on a
+    // real request path attach a client-generated `correlationId` (§2.4) as the CLI-side trace id;
+    // propagating it as a request header to Connect API -> DataKit awaits the backend trace-header
+    // contract. Mock-only events (deploy, deploy status) omit it — no real request is made.
+    await Lifecycle.getInstance().emitTelemetry({ eventName, surface: 'cli', ...attributes });
+  } catch {
+    // Telemetry is best-effort: a listener/emit failure must never reach the caller. A real
+    // statement (not a bare comment) is required so the `no-empty` lint rule passes.
+    return;
+  }
+}

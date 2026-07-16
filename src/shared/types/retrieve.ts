@@ -16,10 +16,10 @@
 
 /*
  * Type definitions for the Data Cloud DevOps "retrieve" contract.
- * Mirrors POST /ssot/devops/retrieve (PROJECT_KNOWLEDGE.md §1.7, §5.5), which returns the
+ * Mirrors GET /ssot/devops/component/snapshot (PROJECT_KNOWLEDGE.md §1.7, §5.5), which returns the
  * named component plus its server-resolved dependency graph.
  * These are the standardized types the service layer produces: the raw per-component payload
- * (entitypayload / data) the API returns is stripped to disk and never surfaces here.
+ * (entityPayload) the API returns is stripped to disk and never surfaces here.
  * The mock (today) and the real Connect API client (Week 2–3) both satisfy these types,
  * so the command never changes when we swap the data source.
  */
@@ -52,6 +52,36 @@ export type RetrieveResult = {
   targetComponent: string;
   /** The requested component plus its server-resolved dependency graph. */
   retrievedComponents: RetrievedComponentInfo[];
-  /** Dataspace-aware directory the components would be written to (§5.2). */
+  /**
+   * Write root for this retrieve (§5.2), e.g. "./data-cloud/default/". DataLakeObject definitions
+   * are written outside this dir (./data-cloud/data-lake-objects/); see "./data-cloud/manifest.json"
+   * for the authoritative inventory of all files written.
+   */
   fileWriteLocation: string;
+};
+
+/**
+ * One component as the raw GET /ssot/devops/component/snapshot API returns it (§5.5): the
+ * standardized fields PLUS a raw, type-specific payload under a single `entityPayload` key (always a
+ * JSON object). The file-writer carries that payload through to disk verbatim. These raw types are
+ * the INPUT to the service layer and never reach the command's `RetrieveResult` — the payload is
+ * stripped before the standardized result is returned.
+ */
+export type RawRetrievedComponent = {
+  /** API value of the component type, e.g. "CalculatedInsight". */
+  componentType: string;
+  /** API/developer name of the component, e.g. "highValueCustomer". */
+  componentName: string;
+  /** Developer name of the dataspace this component belongs to. */
+  dataspaceName: string;
+  /** Direct dependencies (server-resolved); empty array for leaf components. */
+  dependsOn: ComponentDependency[];
+  /** Full component definition JSON — always an object (`Map<String,Object>` on the wire). */
+  entityPayload: Record<string, unknown>;
+};
+
+/** Raw GET /ssot/devops/component/snapshot response (pre-strip, payloads still attached). */
+export type RetrieveApiResponse = {
+  /** The requested component plus its server-spidered dependencies, in deployment order. */
+  components: RawRetrievedComponent[];
 };

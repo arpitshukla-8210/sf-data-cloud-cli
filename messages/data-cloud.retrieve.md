@@ -4,9 +4,7 @@ Retrieve a Data Cloud component along with its full dependency graph.
 
 # description
 
-Simulates pulling a metadata component from a source org and mapping out all necessary internal engine dependencies.
-
-This command currently returns dummy data and does not contact an org or write files.
+Pulls a metadata component from a source org along with all necessary internal engine dependencies. It writes one JSON file per component to the local data-cloud/ directory, along with a manifest of the deployment order.
 
 # flags.component.summary
 
@@ -14,7 +12,7 @@ The component to retrieve, in TYPE:NAME format (for example, CalculatedInsight:h
 
 # flags.dataspace.summary
 
-Developer name of the dataspace context.
+Developer name of the dataspace context. Optional; if omitted, the org's default dataspace context is used and components are written to the data-cloud/ root.
 
 # flags.src-org.summary
 

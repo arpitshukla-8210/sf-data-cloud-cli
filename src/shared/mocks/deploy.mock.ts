@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-import { DeployResult } from '../types/deploy.js';
+import { DeployResult, DeployApiRequest } from '../types/deploy.js';
 
 /*
- * DUMMY DATA — Week 1 only. Simulates the synchronous response from POST /ssot/devops/deploy
+ * DUMMY DATA — Week 1 only. Simulates the synchronous response from POST /ssot/devops/component/promotion
  * (PROJECT_KNOWLEDGE.md §1.10, §5.6): the deploy is enqueued as a background job and the call
  * returns immediately with a tracking jobId in the CREATED state. The jobId mirrors the §5.6
  * example. No network call or org contact happens.
@@ -31,8 +31,12 @@ import { DeployResult } from '../types/deploy.js';
  * returns DeployResult.
  */
 
-/** Returns the dummy deploy result: a tracking jobId in the initial CREATED state (§5.6). */
-export function getMockDeployResult(): DeployResult {
+/**
+ * Returns the dummy deploy result: a tracking jobId in the initial CREATED state (§5.6).
+ * Accepts the assembled request so the call site already passes the real payload; the dummy response
+ * does not vary by input, so it is ignored today (Week 2–3 replaces this with a real POST).
+ */
+export function getMockDeployResult(_request?: DeployApiRequest): DeployResult {
   return {
     jobId: '08PVF000002iQIb',
     status: 'CREATED',

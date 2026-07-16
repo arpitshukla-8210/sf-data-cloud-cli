@@ -16,7 +16,7 @@
 
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
-import { getMockDeployStatus } from '../../../shared/mocks/deploy-status.mock.js';
+import { checkDeployStatus } from '../../../shared/services/deploy-status-service.js';
 import { DeployStatusResult } from '../../../shared/types/deploy-status.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -24,12 +24,10 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
 
 /*
  * Command: sf data-cloud deploy status
- * Maps to GET /ssot/devops/deploy/{jobId}/status (PROJECT_KNOWLEDGE.md §1.7, §5.7).
- * Week 1: returns a dummy status from shared/mocks — no org contact, no network call.
- * Polls the async deploy job started by `sf data-cloud deploy` until it reaches a terminal state.
- * --target-org is accepted now to match the PRD UX walkthrough and to be the target of the real
- * auth/connection wiring in Week 2–3.
- * Stays thin — sources data from shared/ so wiring the real API later touches shared/, not this file.
+ * Maps to GET /ssot/devops/component/promotion/{jobId} (PROJECT_KNOWLEDGE.md §1.7, §5.7).
+ * Resolves --target-org to an authenticated connection and delegates to the deploy-status service,
+ * which polls the async deploy job and normalizes the backend's PascalCase enums to the CLI's
+ * UPPERCASE vocabulary. Stays thin — all HTTP, mapping, and telemetry live in shared/services.
  */
 export default class DataCloudDeployStatus extends SfCommand<DeployStatusResult> {
   public static readonly summary = messages.getMessage('summary');
@@ -42,32 +40,48 @@ export default class DataCloudDeployStatus extends SfCommand<DeployStatusResult>
       required: true,
       aliases: ['i'],
     }),
-    'target-org': Flags.string({
+    'target-org': Flags.requiredOrg({
       summary: messages.getMessage('flags.target-org.summary'),
-      required: true,
-      aliases: ['o'],
     }),
+    'api-version': Flags.orgApiVersion(),
   };
 
   public async run(): Promise<DeployStatusResult> {
     const { flags } = await this.parse(DataCloudDeployStatus);
+    const conn = flags['target-org'].getConnection(flags['api-version']);
 
-    // Source: dummy status today; swap for a Connect API client in Week 2–3.
-    const result = getMockDeployStatus(flags['job-id']);
+    // Service layer: GET the job status → normalize PascalCase enums → emit telemetry.
+    const result = await checkDeployStatus(conn, flags['job-id']);
 
-    // Human-readable mapping: the UX mockup surfaces 'SUCCEEDED' for the backend's terminal 'SUCCESS'
-    // enum. The returned object (and --json) keeps the raw contract value; only display is mapped.
-    const displayStatus = result.status === 'SUCCESS' ? 'SUCCEEDED' : result.status;
-
-    // Human-readable output (auto-suppressed when --json is present).
+    // Human-readable output (auto-suppressed when --json is present). The UX mockup surfaces
+    // 'SUCCEEDED' for the backend's terminal 'SUCCESS' enum; the returned object (and --json) keeps
+    // the raw contract value, so only display is mapped.
     this.log(messages.getMessage('info.jobId', [result.jobId]));
-    this.log(messages.getMessage('info.status', [displayStatus]));
+    this.log(messages.getMessage('info.status', [result.status === 'SUCCESS' ? 'SUCCEEDED' : result.status]));
 
-    // On failure, surface the structured, actionable component error (§5.7 / PROJECT_KNOWLEDGE.md §1.11).
-    if (result.status === 'FAILED' && result.components) {
-      this.log('');
-      this.log(messages.getMessage('error.header', [result.components.componentName]));
-      this.log(messages.getMessage('error.reason', [result.components.error]));
+    // Per-component status table (mirrors `component list`). Empty when the job is CREATED (queued).
+    if (result.components.length > 0) {
+      this.table({
+        data: result.components.map((c) => ({
+          componentName: c.componentName,
+          componentType: c.componentType,
+          status: c.status === 'SUCCESS' ? 'SUCCEEDED' : c.status,
+        })),
+        columns: [
+          { key: 'componentName', name: 'Component' },
+          { key: 'componentType', name: 'Type' },
+          { key: 'status', name: 'Status' },
+        ],
+      });
+    }
+
+    // Surface the structured, actionable reason for each failed component (§5.7 / §1.11).
+    for (const c of result.components) {
+      if (c.status === 'FAILED' && c.error) {
+        this.log('');
+        this.log(messages.getMessage('error.header', [c.componentName]));
+        this.log(messages.getMessage('error.reason', [c.error]));
+      }
     }
 
     // Returned object is what --json emits and what unit tests assert against.

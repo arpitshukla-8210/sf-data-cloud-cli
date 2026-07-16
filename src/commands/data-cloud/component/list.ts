@@ -16,7 +16,7 @@
 
 import { SfCommand, Flags } from '@salesforce/sf-plugins-core';
 import { Messages } from '@salesforce/core';
-import { getMockComponents } from '../../../shared/mocks/components.mock.js';
+import { getComponents } from '../../../shared/services/devops-api.js';
 import { ComponentListResult } from '../../../shared/types/component.js';
 
 Messages.importMessagesDirectoryFromMetaUrl(import.meta.url);
@@ -24,12 +24,11 @@ const messages = Messages.loadMessages('@salesforce/plugin-datacloud-devops', 'd
 
 /*
  * Command: sf data-cloud component list
- * Maps to GET /ssot/devops/component-object-api-names?componentType=<>&dataSpaceName=<>
+ * Maps to GET /ssot/devops/component/catalog?componentType=<>&dataSpaceName=<>
  * (PROJECT_KNOWLEDGE.md §1.7, §5.4).
- * Week 1: returns dummy data from shared/mocks, filtered by --component-type and --dataspace.
- * No org contact yet; --src-org is accepted now to match the PRD UX walkthrough and to be the
- * target of the real auth/connection wiring in Week 2–3.
- * Stays thin — sources data from shared/ so wiring the real API later touches shared/, not this file.
+ * Resolves --src-org to an authenticated connection and lists the components of the requested type
+ * within the dataspace (the server applies the type + dataspace filtering).
+ * Stays thin — the HTTP boundary lives in shared/services/devops-api.
  */
 export default class DataCloudComponentList extends SfCommand<ComponentListResult> {
   public static readonly summary = messages.getMessage('summary');
@@ -47,33 +46,34 @@ export default class DataCloudComponentList extends SfCommand<ComponentListResul
     }),
     dataspace: Flags.string({
       summary: messages.getMessage('flags.dataspace.summary'),
-      required: true,
     }),
-    'src-org': Flags.string({
+    'src-org': Flags.requiredOrg({
       summary: messages.getMessage('flags.src-org.summary'),
-      required: true,
-      aliases: ['target-org', 'o'],
+      aliases: ['target-org'],
     }),
+    'api-version': Flags.orgApiVersion(),
   };
 
   public async run(): Promise<ComponentListResult> {
     const { flags } = await this.parse(DataCloudComponentList);
     const componentType = flags['component-type'];
     const dataspace = flags.dataspace;
+    const conn = flags['src-org'].getConnection(flags['api-version']);
 
-    // Source: dummy data today; swap for a Connect API client in Week 2–3.
-    // The mock simulates the endpoint's server-side filtering by type + dataspace (§5.4).
-    const { components } = getMockComponents(componentType, dataspace);
+    // The server applies the type + dataspace filtering (§5.4); dataspace is omitted when not given.
+    const { components } = await getComponents(conn, componentType, dataspace);
 
     // Human-readable output (auto-suppressed when --json is present).
     this.table({
       data: components,
-      columns: [
-        { key: 'componentName', name: 'Component Name' },
-        { key: 'lastModifiedDate', name: 'Last Modified Date' },
-      ],
+      columns: [{ key: 'componentName', name: 'Component Name' }],
     });
-    this.log(messages.getMessage('info.found', [components.length, componentType, dataspace]));
+    // Drop the dataspace clause when none was provided (avoids "in dataspace 'undefined'").
+    this.log(
+      dataspace
+        ? messages.getMessage('info.found', [components.length, componentType, dataspace])
+        : messages.getMessage('info.foundNoDataspace', [components.length, componentType])
+    );
 
     // Returned object is what --json emits and what unit tests assert against.
     return { components };
