@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { Connection, SfError } from '@salesforce/core';
+import { Env } from '@salesforce/kit';
 import { ComponentTypesResponse } from '../types/component-type.js';
 import { ComponentsResponse } from '../types/component.js';
 import { RetrieveApiResponse } from '../types/retrieve.js';
@@ -23,6 +24,9 @@ import { DeployApiRequest, DeployApiResponse } from '../types/deploy.js';
 import { DeployStatusApiResponse } from '../types/deploy-status.js';
 import { getDiagLogger } from '../diagnostics/logger.js';
 import { Subsystem } from '../diagnostics/event.js';
+import { getMockComponentTypes } from '../mocks/component-types.mock.js';
+import { getMockComponents } from '../mocks/components.mock.js';
+import { getMockRetrieveApiResponse } from '../mocks/retrieve-api-response.mock.js';
 import { emitTelemetry, safeComponentType, safeOrgId, errorMessageFrom, extractGackId } from './telemetry.js';
 
 /*
@@ -56,6 +60,19 @@ const basePath = (conn: Connection): string => `/services/data/v${conn.getApiVer
  */
 export const CORRELATION_ID_HEADER = 'x-correlation-id';
 const SEND_CORRELATION_HEADER: boolean = false;
+
+/*
+ * Offline-mock gate (opt-in, inert by default). When `SF_DATACLOUD_MOCK` is truthy, the read API
+ * functions below return their in-repo fixture instead of calling `conn.request`, so a command can be
+ * run end-to-end (service -> file-writer -> output) with no org. Read through @salesforce/kit's `Env`
+ * to match how the rest of the plugin reads env config (no raw process.env). `env` is parameterized
+ * (mirroring correlationHeaders/getRequest) so a test can force either branch without touching the
+ * real environment. NOTE: only the three exact-type-match reads are mocked — deploy (createPromotion)
+ * and deploy status (getPromotionStatus) have no type-matching fixture and still hit the real API even
+ * when this is on.
+ */
+export const MOCK_ENV_VAR = 'SF_DATACLOUD_MOCK';
+export const mockEnabled = (env: Env = new Env()): boolean => env.getBoolean(MOCK_ENV_VAR);
 
 /**
  * The correlation header as a map when enabled, else empty — spread into an existing headers object.
@@ -142,6 +159,8 @@ export async function getComponentTypes(
   // Client-generated CLI-side trace id for this request (§2.4): emitted in telemetry and, once
   // SEND_CORRELATION_HEADER is enabled, also sent as a request header so the backend logs join to it.
   try {
+    // Offline-mock short-circuit (SF_DATACLOUD_MOCK): return the fixture before touching the org.
+    if (mockEnabled()) return getMockComponentTypes();
     diag.debug(Subsystem.API, 'API_REQ_START', 'requesting component types', { operation: 'componentTypes' });
     const resp = await conn.request<ComponentTypesResponse>(
       getRequest(`${basePath(conn)}/component-types`, correlationId)
@@ -214,6 +233,8 @@ export async function getComponents(
   }
   const qs = new URLSearchParams(params).toString();
   try {
+    // Offline-mock short-circuit (SF_DATACLOUD_MOCK): return the fixture before touching the org.
+    if (mockEnabled()) return getMockComponents(componentType, dataSpaceName ?? '');
     diag.debug(Subsystem.API, 'API_REQ_START', 'requesting components', {
       operation: 'components',
       component_type: safeComponentType(componentType), // bounded TYPE only; never the dataspace/qs.
@@ -291,6 +312,8 @@ export async function getSnapshot(
   }
   const qs = new URLSearchParams(params).toString();
   try {
+    // Offline-mock short-circuit (SF_DATACLOUD_MOCK): return the fixture before touching the org.
+    if (mockEnabled()) return getMockRetrieveApiResponse(dataSpaceName ?? '');
     diag.debug(Subsystem.API, 'API_REQ_START', 'requesting snapshot', {
       operation: 'snapshot',
       component_type: safeComponentType(componentType),

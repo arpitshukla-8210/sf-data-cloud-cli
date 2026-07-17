@@ -28,6 +28,7 @@ Source-controlled DevOps (retrieve and deploy) for **Data Cloud (Data 360)** com
   - [`data-cloud diagnostics`](#sf-data-cloud-diagnostics)
 - [On-disk file layout](#on-disk-file-layout)
 - [Environment variables](#environment-variables)
+- [Offline mock mode](#offline-mock-mode)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
@@ -462,6 +463,7 @@ All are optional. The **diagnostic** (local NDJSON) channel is configured entire
 | `SF_DATACLOUD_LOG_LEVEL_FILEIO` | inherits global  | Per-subsystem override for the **FILEIO** subsystem (disk reads/writes).                                                                                                                                                                                 |
 | `SF_DATACLOUD_LOG_DIR`          | platform default | Override the directory diagnostic logs are written to. Platform defaults: `~/Library/Logs/salesforce-datacloud-devops` (macOS), `%LOCALAPPDATA%\salesforce-datacloud-devops\logs` (Windows), `$XDG_STATE_HOME/salesforce-datacloud-devops/logs` (Linux). |
 | `SF_DISABLE_TELEMETRY`          | unset            | Standard `sf` CLI setting. When `true`, the CLI's telemetry infrastructure does not upload events. This plugin emits on the shared `Lifecycle` channel; it does not implement its own opt-out.                                                           |
+| `SF_DATACLOUD_MOCK`             | unset            | Dev-loop only. When truthy (`true`/`1`), the read commands return in-repo fixtures instead of calling the org — no org contact. See [Offline mock mode](#offline-mock-mode). Unset, behavior is unchanged.                                               |
 
 Sources: [`config.ts`](src/shared/diagnostics/config.ts), [`event.ts:33`](src/shared/diagnostics/event.ts#L33) (levels), [`storage.ts:62`](src/shared/diagnostics/storage.ts#L62) (log directory). The `CORE` subsystem has no dedicated override — it always follows the global level.
 
@@ -478,6 +480,37 @@ The plugin emits these event names on the `Lifecycle` telemetry channel (all pre
 - `DATACLOUD_DEVOPS_DEPLOY_COMPONENT`
 - `DATACLOUD_DEVOPS_DEPLOY_COMPONENT_FAILURE`
 - `DATACLOUD_DEVOPS_DEPLOY_STATUS_POLL`
+
+---
+
+## Offline mock mode
+
+Set **`SF_DATACLOUD_MOCK=true`** to run the read commands against in-repo fixtures instead of a real org. This is a **local dev-loop convenience**, not a feature of the shipped CLI: it lets you edit a fixture, run the real command, and watch exactly how the plugin handles the payload — file layout, dependency ordering, `entityPayload` pass-through, and output — with no authenticated Data Cloud org.
+
+When the variable is **unset (the default), behavior is byte-for-byte unchanged** — every command hits the org exactly as before. The gate is read once at the single HTTP boundary ([`devops-api.ts`](src/shared/services/devops-api.ts)); when it is on, each covered function returns its fixture _before_ any network call.
+
+**What it covers** (the reads with a type-matching fixture in [`src/shared/mocks/`](src/shared/mocks/)):
+
+| Command                             | Fixture source                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `sf data-cloud component-type list` | [`component-types.mock.ts`](src/shared/mocks/component-types.mock.ts)             |
+| `sf data-cloud component list`      | [`components.mock.ts`](src/shared/mocks/components.mock.ts)                       |
+| `sf data-cloud retrieve`            | [`retrieve-api-response.mock.ts`](src/shared/mocks/retrieve-api-response.mock.ts) |
+
+**Not covered:** `sf data-cloud deploy` and `sf data-cloud deploy status` have no type-matching fixture, so they still hit the real API even when the variable is set.
+
+```bash
+# No org needed — returns the fixture. The org flag is still required at the flag layer
+# (any authenticated alias works; the org is never contacted in mock mode).
+SF_DATACLOUD_MOCK=true sf data-cloud component-type list --src-org myOrg
+SF_DATACLOUD_MOCK=true sf data-cloud component list --component-type CalculatedInsight --dataspace default --src-org myOrg
+SF_DATACLOUD_MOCK=true sf data-cloud retrieve --component CalculatedInsight:highValueCustomer --dataspace default --src-org myOrg
+
+# Then inspect the generated tree: file layout, manifest.json deploymentOrder, entityPayload pass-through.
+# Edit src/shared/mocks/retrieve-api-response.mock.ts, re-run retrieve, and watch the layout change.
+```
+
+> **Tip.** `retrieve` writes the `data-cloud/` tree into the current working directory, so run mock experiments from a throwaway directory to avoid clobbering real output. With `./bin/dev.js`, run from **inside** the project (the `ts-node` ESM loader resolves from the repo's `node_modules`).
 
 ---
 
